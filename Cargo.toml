@@ -1,0 +1,25 @@
+[package]
+name = "juju"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+diesel = { version = "*", features = ["postgres", "chrono", "r2d2"] }
+serde = "*"
+serde_json = "*"
+actix-web = "*"
+dotenv = "*"
+diesel-derive-enum = { version = "1", features = ["postgres"] }
+chrono = { version = "*", features = ["serde"]}
+casbin = { version = "*",  features = ["logging"]}
+tokio = { version = "1.15.0", features = ["rt", "macros"] }
+jsonwebtoken = "*"
+thiserror = "*"
+futures-util = "0.3.19"
+r2d2 = { version = "*" }
+sha2 = "*"
+hex = "*"
+rand = "*"
+env_logger = "*"
