@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use crate::actix_web::{
     dev::{Service, ServiceRequest, ServiceResponse, Transform},
     error::{ErrorInternalServerError, ErrorUnauthorized},
-    http::{HeaderName, HeaderValue},
     Error, HttpMessage,
 };
 use crate::context::UserInfo;
@@ -11,7 +10,6 @@ use crate::dotenv;
 use crate::jsonwebtoken;
 use std::future::{ready, Future, Ready};
 use std::pin::Pin;
-use std::str::FromStr;
 
 pub static JWT_TOKEN: &str = "JWT_TOKEN";
 pub static JWT_SECRET: &str = "JWT_SECRET";

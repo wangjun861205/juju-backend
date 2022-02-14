@@ -3,13 +3,23 @@ table! {
         id -> Int4,
         user_id -> Int4,
         option_id -> Int4,
+        question_id -> Int4,
+    }
+}
+
+table! {
+    date_ranges (id) {
+        id -> Int4,
+        range_ -> Daterange,
+        vote_id -> Int4,
+        user_id -> Int4,
     }
 }
 
 table! {
     dates (id) {
         id -> Int4,
-        d -> Date,
+        date_ -> Date,
         user_id -> Int4,
         vote_id -> Int4,
     }
@@ -42,6 +52,7 @@ table! {
         id -> Int4,
         description -> Varchar,
         vote_id -> Int4,
+        type_ -> crate::models::QuestionTypeMapping,
     }
 }
 
@@ -75,7 +86,10 @@ table! {
 }
 
 joinable!(answers -> options (option_id));
+joinable!(answers -> questions (question_id));
 joinable!(answers -> users (user_id));
+joinable!(date_ranges -> users (user_id));
+joinable!(date_ranges -> votes (vote_id));
 joinable!(dates -> users (user_id));
 joinable!(dates -> votes (vote_id));
 joinable!(options -> questions (question_id));
@@ -84,4 +98,4 @@ joinable!(users_organizations -> organizations (organization_id));
 joinable!(users_organizations -> users (user_id));
 joinable!(votes -> organizations (organization_id));
 
-allow_tables_to_appear_in_same_query!(answers, dates, invite_codes, options, organizations, questions, users, users_organizations, votes,);
+allow_tables_to_appear_in_same_query!(answers, date_ranges, dates, invite_codes, options, organizations, questions, users, users_organizations, votes,);

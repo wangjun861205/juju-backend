@@ -25,7 +25,7 @@ pub mod privilege;
 pub mod response;
 mod schema;
 
-use actix_web::web::{put, resource};
+use actix_web::web::{delete, get, post, put, resource, route, scope, service};
 use actix_web::HttpServer;
 use diesel::pg::PgConnection;
 use middleware::jwt::JWT;
@@ -42,34 +42,49 @@ async fn main() -> Result<(), std::io::Error> {
         actix_web::App::new()
             .wrap(actix_web::middleware::Logger::default())
             .data(pool.clone())
-            .route("/login", actix_web::web::post().to(handlers::login))
-            .route("/signup", actix_web::web::post().to(handlers::signup))
+            .route("/login", post().to(handlers::login))
+            .route("/signup", post().to(handlers::signup))
             .service(
-                actix_web::web::scope("/organizations")
+                scope("/")
                     .wrap(JWT {})
-                    .route("", actix_web::web::get().to(handlers::organization_list))
-                    .route("", actix_web::web::post().to(handlers::create_organization))
-                    .route("/{organization_id}", actix_web::web::get().to(handlers::organization_detail))
-                    .route("/{organization_id}", actix_web::web::delete().to(handlers::delete_organization))
                     .service(
-                        actix_web::web::scope("/{organizations_id}/votes")
-                            .route("", actix_web::web::get().to(handlers::vote_list))
-                            .route("/{vote_id}", actix_web::web::get().to(handlers::vote_detail))
-                            .route("/{vote_id}", actix_web::web::put().to(handlers::update_vote))
+                        scope("organizations")
+                            .route("", actix_web::web::get().to(handlers::organization::organization_list))
+                            .route("", actix_web::web::post().to(handlers::organization::create_organization))
                             .service(
-                                actix_web::web::scope("/{vote_id}/questions")
-                                    .route("", actix_web::web::post().to(handlers::add_question))
-                                    .route("/{question_id}/opts", actix_web::web::post().to(handlers::add_opts)),
+                                scope("{organization_id}")
+                                    .route("", get().to(handlers::organization::organization_detail))
+                                    .route("", delete().to(handlers::organization::delete_organization))
+                                    .service(scope("votes").route("", post().to(handlers::vote::create)).route("", get().to(handlers::vote::vote_list))),
                             ),
+                    )
+                    .service(
+                        scope("votes/{vote_id}")
+                            .route("", get().to(handlers::vote::vote_detail))
+                            .route("", put().to(handlers::vote::update_vote))
+                            .service(
+                                scope("date_ranges")
+                                    .route("", get().to(handlers::date::date_range_list))
+                                    .route("", put().to(handlers::date::submit_date_ranges))
+                                    .service(
+                                        scope("report")
+                                            .route("year", get().to(handlers::date::year_report))
+                                            .route("month", get().to(handlers::date::month_report)),
+                                    ),
+                            )
+                            .service(
+                                scope("questions")
+                                    .route("", post().to(handlers::question::create_question))
+                                    .route("", get().to(handlers::question::question_list)),
+                            ),
+                    )
+                    .service(
+                        scope("questions/{question_id}")
+                            .route("", get().to(handlers::question::question_detail))
+                            .service(scope("options").route("", post().to(handlers::option::add_opts)).route("", get().to(handlers::option::option_list)))
+                            .service(scope("answers").route("", get().to(handlers::answer::answer_list)).route("", put().to(handlers::answer::submit_answer))), // .service(scope("report").route("", get().to(handlers::question::gen_question_report))),
                     ),
             )
-            .service(actix_web::web::resource("/votes").wrap(JWT {}).route(actix_web::web::post().to(handlers::create_vote)))
-            .service(
-                actix_web::web::resource("/questions/{qid}/options/{oid}/answers")
-                    .wrap(JWT {})
-                    .route(actix_web::web::post().to(handlers::submit_answer)),
-            )
-            .service(resource("/votes/{vid}/dates").wrap(JWT {}).route(put().to(handlers::submit_dates)))
     })
     .bind(("0.0.0.0", 8000))?
     .run()

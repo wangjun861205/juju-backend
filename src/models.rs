@@ -1,3 +1,5 @@
+use std::ops::Bound;
+
 use crate::schema::*;
 use chrono::NaiveDate;
 use diesel::{Insertable, Queryable};
@@ -86,12 +88,19 @@ pub struct VoteUpdation {
     pub status: VoteStatus,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, DbEnum)]
+pub enum QuestionType {
+    Single,
+    Multi,
+}
+
 #[derive(Debug, Clone, Serialize, Queryable, Identifiable, Associations)]
 #[belongs_to(Vote)]
 pub struct Question {
     pub id: i32,
     pub description: String,
     pub vote_id: i32,
+    pub type_: QuestionType,
 }
 
 #[derive(Debug, Clone, Deserialize, Insertable)]
@@ -99,6 +108,7 @@ pub struct Question {
 pub struct QuestionInsertion {
     pub description: String,
     pub vote_id: i32,
+    pub type_: QuestionType,
 }
 
 #[derive(Debug, Clone, Serialize, Identifiable, Queryable, Associations)]
@@ -124,6 +134,7 @@ pub struct Answer {
     id: i32,
     user_id: i32,
     option_id: i32,
+    question_id: i32,
 }
 
 #[derive(Debug, Clone, Deserialize, Insertable)]
@@ -131,6 +142,24 @@ pub struct Answer {
 pub struct AnswerInsertion {
     pub user_id: i32,
     pub option_id: i32,
+    pub question_id: i32,
+}
+
+#[derive(Debug, Clone, Identifiable, Queryable, Associations)]
+#[belongs_to(Vote)]
+pub struct DateRange {
+    pub id: i32,
+    pub range_: (Bound<NaiveDate>, Bound<NaiveDate>),
+    pub vote_id: i32,
+    pub user_id: i32,
+}
+
+#[derive(Debug, Clone, Insertable)]
+#[table_name = "date_ranges"]
+pub struct DateRangeInsertion {
+    pub range_: (Bound<NaiveDate>, Bound<NaiveDate>),
+    pub vote_id: i32,
+    pub user_id: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Identifiable, Queryable, Associations)]
@@ -138,7 +167,7 @@ pub struct AnswerInsertion {
 #[belongs_to(Vote)]
 pub struct Date {
     id: i32,
-    d: NaiveDate,
+    date_: NaiveDate,
     user_id: i32,
     vote_id: i32,
 }
@@ -146,7 +175,7 @@ pub struct Date {
 #[derive(Debug, Clone, Deserialize, Insertable)]
 #[table_name = "dates"]
 pub struct DateInsertion {
-    pub d: NaiveDate,
+    pub date_: NaiveDate,
     pub user_id: i32,
     pub vote_id: i32,
 }
