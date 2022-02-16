@@ -64,11 +64,11 @@ pub struct UsersOrganizationInsertion {
 #[derive(Debug, Clone, Serialize, Queryable, Identifiable, Associations)]
 #[belongs_to(Organization)]
 pub struct Vote {
-    id: i32,
-    name: String,
-    deadline: Option<NaiveDate>,
-    status: VoteStatus,
-    organization_id: i32,
+    pub id: i32,
+    pub name: String,
+    pub deadline: Option<NaiveDate>,
+    pub status: VoteStatus,
+    pub organization_id: i32,
 }
 
 #[derive(Debug, Clone, Deserialize, Insertable)]
@@ -134,7 +134,6 @@ pub struct Answer {
     id: i32,
     user_id: i32,
     option_id: i32,
-    question_id: i32,
 }
 
 #[derive(Debug, Clone, Deserialize, Insertable)]
@@ -142,7 +141,6 @@ pub struct Answer {
 pub struct AnswerInsertion {
     pub user_id: i32,
     pub option_id: i32,
-    pub question_id: i32,
 }
 
 #[derive(Debug, Clone, Identifiable, Queryable, Associations)]

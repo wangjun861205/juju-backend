@@ -40,7 +40,6 @@ pub async fn submit_answer(user_info: UserInfo, Path((qst_id,)): Path<(i32,)>, J
         if !is_vote_valid {
             return Err(Error::BusinessError("vote not exists or invalid vote status".into()));
         }
-
         let answer_valid_query = sql_query(
             r#" select (ids @> $1) as is_valid from (
                 select q.id, array_agg(o.id) as ids
@@ -57,20 +56,20 @@ pub async fn submit_answer(user_info: UserInfo, Path((qst_id,)): Path<(i32,)>, J
             return Err(Error::BusinessError("invalid answer".into()));
         }
         diesel::delete(answers::table)
-            .filter(answers::user_id.eq(user_info.id).and(answers::question_id.eq(qst_id)))
+            .filter(
+                answers::id
+                    .eq_any(
+                        questions::table
+                            .inner_join(options::table.inner_join(answers::table))
+                            .filter(questions::id.eq(qst_id))
+                            .select(answers::id),
+                    )
+                    .and(answers::user_id.eq(user_info.id)),
+            )
             .execute(&conn)?;
 
         diesel::insert_into(answers::table)
-            .values(
-                answer
-                    .into_iter()
-                    .map(|o| AnswerInsertion {
-                        user_id: user_info.id,
-                        option_id: o,
-                        question_id: qst_id,
-                    })
-                    .collect::<Vec<_>>(),
-            )
+            .values(answer.into_iter().map(|o| AnswerInsertion { user_id: user_info.id, option_id: o }).collect::<Vec<_>>())
             .execute(&conn)?;
         Ok(())
     })?;
@@ -98,7 +97,6 @@ pub async fn answer_list(user_info: UserInfo, Path((qst_id,)): Path<(i32,)>, db:
             .filter(users::id.eq(user_info.id).and(questions::id.eq(qst_id)))
             .select(questions::type_)
             .get_result::<QuestionType>(&conn)?;
-
         let options: Vec<OptionItem> = questions::table
             .inner_join(options::table)
             .filter(questions::id.eq(qst_id))

@@ -3,7 +3,6 @@ table! {
         id -> Int4,
         user_id -> Int4,
         option_id -> Int4,
-        question_id -> Int4,
     }
 }
 
@@ -86,7 +85,6 @@ table! {
 }
 
 joinable!(answers -> options (option_id));
-joinable!(answers -> questions (question_id));
 joinable!(answers -> users (user_id));
 joinable!(date_ranges -> users (user_id));
 joinable!(date_ranges -> votes (vote_id));

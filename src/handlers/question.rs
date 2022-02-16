@@ -5,7 +5,7 @@ use crate::actix_web::{
 };
 use crate::context::UserInfo;
 use crate::diesel::{
-    dsl::{exists, select, sql, sql_query},
+    dsl::{exists, select, sql},
     sql_types::*,
     BelongingToDsl, BoolExpressionMethods, Connection, ExpressionMethods, GroupByDsl, QueryDsl, RunQueryDsl,
 };
@@ -83,40 +83,6 @@ pub async fn question_list(user_info: UserInfo, Path((vote_id,)): Path<(i32,)>, 
             .collect(),
         0,
     )))
-}
-
-#[derive(Debug, Clone, Serialize, QueryableByName)]
-struct OptionReport {
-    #[sql_type = "Text"]
-    option: String,
-    #[sql_type = "Integer"]
-    percentage: i32,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct QuestionReport {
-    question: String,
-    options: Vec<OptionReport>,
-}
-
-fn gen_question_report(question_id: i32, db: DB) -> Result<QuestionReport, Error> {
-    let conn = db.get()?;
-    let question = questions::table.find(question_id).get_result::<models::Question>(&conn)?;
-    let stmt = r#"
-    select o.option as option, (count(distinct a.id)::float / (count(distinct uo.user_id)))::int
-    from answers as a
-    join options as o on a.option_id = o.id
-    join questions as q on o.question_id = q.id
-    join votes as v on q.vote_id = v.id
-    join organizations as oz on v.organization_id = oz.id
-    join users_organizations as uo on oz.id = uo.organization_id
-    where q.id = $1
-    group by option"#;
-    let opts = sql_query(stmt).bind::<Integer, _>(question_id).load::<OptionReport>(&conn)?;
-    Ok(QuestionReport {
-        question: question.description,
-        options: opts,
-    })
 }
 
 #[derive(Debug, Serialize)]

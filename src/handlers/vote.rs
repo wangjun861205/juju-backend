@@ -5,12 +5,19 @@ use crate::actix_web::{
 };
 use crate::chrono::NaiveDate;
 use crate::context::UserInfo;
-use crate::diesel::{dsl::exists, insert_into, select, BelongingToDsl, BoolExpressionMethods, Connection, ExpressionMethods, QueryDsl, RunQueryDsl};
+use crate::diesel::{
+    delete,
+    dsl::{exists, sql_query},
+    insert_into, select,
+    sql_types::*,
+    BelongingToDsl, BoolExpressionMethods, Connection, ExpressionMethods, QueryDsl, RunQueryDsl,
+};
 use crate::error::Error;
 use crate::handlers::DB;
 use crate::models::{Date, Question, Vote, VoteInsertion, VoteStatus};
+use crate::response::DeleteResponse;
 use crate::response::List;
-use crate::schema::{organizations, users, users_organizations, votes};
+use crate::schema::{organizations, questions, users, users_organizations, votes};
 use crate::serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -141,4 +148,64 @@ pub async fn vote_detail(user_info: UserInfo, Path((vote_id,)): Path<(i32,)>, db
         })
     })?;
     Ok(HttpResponse::build(StatusCode::OK).json(detail))
+}
+
+#[derive(Debug, Clone, Serialize, QueryableByName)]
+pub struct OptionReport {
+    #[sql_type = "Text"]
+    option: String,
+    #[sql_type = "Integer"]
+    percentage: i32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct QuestionReport {
+    question: String,
+    options: Vec<OptionReport>,
+}
+
+fn gen_question_report(question_id: i32, db: &DB) -> Result<QuestionReport, Error> {
+    let conn = &db.get()?;
+    let question = questions::table.find(question_id).get_result::<Question>(conn)?;
+    let stmt = r#"
+    select o.option as option, (count(distinct a.id)::float / (count(distinct uo.user_id))::float * 10000)::int as percentage
+    from users_organizations as uo
+    join organizations as org on uo.organization_id = org.id
+    join votes as v on org.id = v.organization_id
+    join questions as q on v.id = q.vote_id
+    join options as o on q.id = o.question_id
+    left join answers as a on o.id = a.option_id
+    where q.id = $1
+    group by option"#;
+    let opts = sql_query(stmt).bind::<Integer, _>(question_id).load::<OptionReport>(conn)?;
+    Ok(QuestionReport {
+        question: question.description,
+        options: opts,
+    })
+}
+
+pub async fn question_reports(user_info: UserInfo, Path((vote_id,)): Path<(i32,)>, db: DB) -> Result<Json<Vec<QuestionReport>>, Error> {
+    let qids: Vec<i32> = users::table
+        .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table.inner_join(questions::table))))
+        .filter(users::id.eq(user_info.id).and(votes::id.eq(vote_id)))
+        .select(questions::id)
+        .load(&db.get()?)?;
+    let resports: Vec<QuestionReport> = qids.into_iter().map(|id| gen_question_report(id, &db)).collect::<Result<Vec<QuestionReport>, Error>>()?;
+    Ok(Json(resports))
+}
+
+pub async fn delete_vote(user_info: UserInfo, Path((vote_id,)): Path<(i32,)>, db: DB) -> Result<Json<DeleteResponse>, Error> {
+    let deleted: usize = delete(votes::table)
+        .filter(
+            votes::id
+                .eq_any(
+                    users::table
+                        .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table)))
+                        .filter(users::id.eq(user_info.id))
+                        .select(votes::id),
+                )
+                .and(votes::id.eq(vote_id)),
+        )
+        .execute(&db.get()?)?;
+    Ok(Json(DeleteResponse::new(deleted)))
 }

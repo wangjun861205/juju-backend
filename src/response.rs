@@ -11,3 +11,14 @@ impl<T> List<T> {
         List { list, total }
     }
 }
+
+#[derive(Debug, Serialize)]
+pub struct DeleteResponse {
+    deleted: usize,
+}
+
+impl DeleteResponse {
+    pub fn new(deleted: usize) -> Self {
+        DeleteResponse { deleted }
+    }
+}

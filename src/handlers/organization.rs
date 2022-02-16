@@ -8,17 +8,17 @@ use crate::diesel::{dsl::any, BelongingToDsl, BoolExpressionMethods, Connection,
 use crate::error::Error;
 use crate::handlers::DB;
 use crate::models::{Organization, OrganizationInsertion, UsersOrganizationInsertion, Vote};
+use crate::response::DeleteResponse;
 use crate::schema::{organizations, users, users_organizations, votes};
 use crate::serde::{Deserialize, Serialize};
 
-pub async fn delete_organization(user_info: UserInfo, Path((organization_id,)): Path<(i32,)>, db: DB) -> Result<HttpResponse, Error> {
+pub async fn delete_organization(user_info: UserInfo, Path((organization_id,)): Path<(i32,)>, db: DB) -> Result<Json<DeleteResponse>, Error> {
     let query = diesel::delete(organizations::table).filter(
         organizations::id.eq(any(users_organizations::table
             .filter(users_organizations::user_id.eq(user_info.id).and(users_organizations::organization_id.eq(organization_id)))
             .select(users_organizations::organization_id))),
     );
-    query.execute(&db.get()?)?;
-    return Ok(HttpResponse::build(StatusCode::OK).finish());
+    Ok(Json(DeleteResponse::new(query.execute(&db.get()?)?)))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
