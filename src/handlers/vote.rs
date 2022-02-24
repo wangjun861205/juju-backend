@@ -1,37 +1,27 @@
-use crate::actix_web::{
-    http::StatusCode,
-    web::{Json, Path, Query},
-    HttpResponse,
-};
-use crate::chrono::NaiveDate;
+use crate::actix_web::web::{Json, Path, Query};
+use crate::chrono::{DateTime, Local, NaiveDate, Utc};
 use crate::context::UserInfo;
 use crate::diesel::{
     delete,
-    dsl::{exists, sql_query},
+    dsl::{exists, sql, sql_query, update as update_},
     insert_into, select,
     sql_types::*,
     BelongingToDsl, BoolExpressionMethods, Connection, ExpressionMethods, QueryDsl, RunQueryDsl,
 };
 use crate::error::Error;
 use crate::handlers::DB;
-use crate::models::{Date, Question, Vote, VoteInsertion, VoteStatus};
-use crate::response::DeleteResponse;
-use crate::response::List;
-use crate::schema::{organizations, questions, users, users_organizations, votes};
+use crate::models::{Date, Question, Vote, VoteInsertion, VoteReadMarkInsertion, VoteStatus, VoteUpdation as MVoteUpdation};
+use crate::response::{CreateResponse, DeleteResponse, List, UpdateResponse};
+use crate::schema::{organizations, questions, users, users_organizations, vote_update_marks, votes};
 use crate::serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Creation {
     name: String,
-    deadline: Option<NaiveDate>,
+    deadline: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct CreationResponse {
-    id: usize,
-}
-
-pub async fn create(user_info: UserInfo, Path((org_id,)): Path<(i32,)>, body: Json<Creation>, db: DB) -> Result<Json<CreationResponse>, Error> {
+pub async fn create(user_info: UserInfo, Path((org_id,)): Path<(i32,)>, Json(body): Json<Creation>, db: DB) -> Result<Json<CreateResponse>, Error> {
     let conn = db.get()?;
     let id = conn.transaction::<_, Error, _>(|| {
         let exists = select(exists(
@@ -44,58 +34,69 @@ pub async fn create(user_info: UserInfo, Path((org_id,)): Path<(i32,)>, body: Js
         if !exists {
             return Err(Error::BusinessError("irrelative organization".into()));
         }
-        Ok(insert_into(votes::table)
+        let vote_id = insert_into(votes::table)
             .values(VoteInsertion {
-                name: body.0.name,
-                deadline: body.0.deadline,
-                status: VoteStatus::Collecting,
+                name: body.name,
+                deadline: if let Some(dl) = body.deadline { Some(dl.naive_utc().date()) } else { None },
                 organization_id: org_id,
             })
-            .execute(&conn)?)
+            .execute(&conn)?;
+        let user_ids: Vec<i32> = users::table
+            .inner_join(users_organizations::table.inner_join(organizations::table))
+            .filter(organizations::id.eq(org_id))
+            .select(users::id)
+            .load(&conn)?;
+        insert_into(vote_update_marks::table)
+            .values(
+                user_ids
+                    .into_iter()
+                    .map(|id| VoteReadMarkInsertion {
+                        user_id: id,
+                        vote_id: vote_id as i32,
+                        has_updated: true,
+                    })
+                    .collect::<Vec<VoteReadMarkInsertion>>(),
+            )
+            .execute(&conn)?;
+        Ok(vote_id)
     })?;
-    return Ok(Json(CreationResponse { id: id }));
+    return Ok(Json(CreateResponse { id: id }));
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct VoteUpdation {
     name: String,
-    deadline: Option<String>,
+    deadline: Option<NaiveDate>,
 }
 
-pub async fn update_vote(user_info: UserInfo, Path((org_id, vote_id)): Path<(i32, i32)>, vote: Json<VoteUpdation>, db: DB) -> Result<HttpResponse, Error> {
-    use crate::models;
-    let deadline = if let Some(dl) = vote.clone().deadline {
-        Some(NaiveDate::parse_from_str(&dl, "%Y-%m-%d")?)
-    } else {
-        None
-    };
-    let status = if let Some(d) = &deadline {
-        if d < &chrono::Local::today().naive_local() {
-            models::VoteStatus::Closed
-        } else {
-            models::VoteStatus::Collecting
-        }
-    } else {
-        models::VoteStatus::Collecting
-    };
-    diesel::update(votes::table)
-        .filter(
-            votes::dsl::organization_id
-                .eq_any(
-                    users::table
-                        .inner_join(users_organizations::table.inner_join(organizations::table))
-                        .select(organizations::id)
-                        .filter(users::dsl::id.eq(user_info.id).and(organizations::dsl::id.eq(org_id))),
-                )
-                .and(votes::dsl::id.eq(vote_id)),
-        )
-        .set(models::VoteUpdation {
-            name: vote.clone().name,
-            deadline: deadline,
-            status: status,
-        })
-        .execute(&db.get()?)?;
-    Ok(HttpResponse::build(StatusCode::OK).finish())
+pub async fn update(user_info: UserInfo, Path((vote_id,)): Path<(i32,)>, Json(VoteUpdation { name, deadline }): Json<VoteUpdation>, db: DB) -> Result<Json<UpdateResponse>, Error> {
+    let conn = db.get()?;
+    let updated: usize = conn.transaction::<_, Error, _>(|| {
+        let mut vote: MVoteUpdation = users::table
+            .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table)))
+            .filter(users::id.eq(user_info.id).and(votes::id.eq(vote_id)))
+            .select((votes::name, votes::deadline))
+            .for_update()
+            .first(&conn)?;
+        update_(vote_update_marks::table)
+            .filter(vote_update_marks::vote_id.eq(vote_id))
+            .set(vote_update_marks::has_updated.eq(true))
+            .execute(&conn)?;
+        vote.name = name;
+        vote.deadline = deadline;
+        let updated = update_(votes::table).filter(votes::id.eq(vote_id)).set(vote).execute(&conn)?;
+        Ok(updated)
+    })?;
+    Ok(Json(UpdateResponse { updated }))
+}
+
+#[derive(Debug, Serialize, Queryable)]
+pub struct Item {
+    id: i32,
+    name: String,
+    deadline: Option<NaiveDate>,
+    status: String,
+    has_updated: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -111,43 +112,74 @@ pub struct VoteParam {
     size: i64,
 }
 
-pub async fn vote_list(user_info: UserInfo, param: Query<VoteParam>, organization_id: Path<(i32,)>, db: DB) -> Result<HttpResponse, Error> {
+pub async fn list(user_info: UserInfo, param: Query<VoteParam>, organization_id: Path<(i32,)>, db: DB) -> Result<Json<List<Item>>, Error> {
     let conn = db.get()?;
-    let (votes, total) = conn.transaction::<(Vec<Vote>, i64), Error, _>(|| {
+    let (votes, total) = conn.transaction::<(Vec<Item>, i64), Error, _>(|| {
         let total: i64 = users::table
             .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table)))
             .filter(users::id.eq(user_info.id).and(organizations::id.eq(organization_id.0 .0)))
             .count()
             .get_result(&conn)?;
-        let votes = users::table
-            .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table)))
-            .select(votes::all_columns)
-            .filter(users::id.eq(user_info.id).and(organizations::id.eq(organization_id.0 .0)))
+        let votes: Vec<Item> = users::table
+            .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table.inner_join(vote_update_marks::table))))
+            .select((
+                votes::id,
+                votes::name,
+                votes::deadline,
+                sql::<Text>("CASE WHEN votes.deadline < DATE(NOW()) THEN 'Closed' ELSE 'Collecting' END"),
+                vote_update_marks::has_updated,
+            ))
+            .filter(
+                users::id
+                    .eq(user_info.id)
+                    .and(organizations::id.eq(organization_id.0 .0))
+                    .and(vote_update_marks::user_id.eq(user_info.id)),
+            )
             .offset((param.page - 1) * param.size)
             .limit(param.size)
-            .load::<Vote>(&conn)?;
+            .load::<Item>(&conn)?;
         Ok((votes, total))
     })?;
-    return Ok(HttpResponse::build(StatusCode::OK).json(List::new(votes, total)));
+    Ok(Json(List::new(votes, total)))
 }
 
-pub async fn vote_detail(user_info: UserInfo, Path((vote_id,)): Path<(i32,)>, db: DB) -> Result<HttpResponse, Error> {
+#[derive(Debug, Serialize)]
+pub struct Detail {
+    id: i32,
+    name: String,
+    deadline: Option<NaiveDate>,
+    status: VoteStatus,
+}
+
+pub async fn detail(user_info: UserInfo, Path((vote_id,)): Path<(i32,)>, db: DB) -> Result<Json<Detail>, Error> {
     let conn = db.get()?;
-    let detail = conn.transaction::<VoteDetail, Error, _>(|| {
+    let vote = conn.transaction::<_, Error, _>(|| {
         let vote: Vote = users::table
             .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table)))
             .filter(users::dsl::id.eq(user_info.id).and(votes::dsl::id.eq(vote_id)))
             .select(votes::all_columns)
+            .for_update()
             .get_result(&conn)?;
-        let dates: Vec<Date> = Date::belonging_to(&vote).load(&conn)?;
-        let questions: Vec<Question> = Question::belonging_to(&vote).load(&conn)?;
-        Ok(VoteDetail {
-            vote: vote,
-            dates: dates,
-            questions: questions,
-        })
+        update_(vote_update_marks::table)
+            .filter(vote_update_marks::user_id.eq(user_info.id).and(vote_update_marks::vote_id.eq(vote_id)))
+            .set(vote_update_marks::has_updated.eq(false))
+            .execute(&conn)?;
+        Ok(vote)
     })?;
-    Ok(HttpResponse::build(StatusCode::OK).json(detail))
+    Ok(Json(Detail {
+        id: vote.id,
+        name: vote.name,
+        deadline: vote.deadline.clone(),
+        status: if let Some(dl) = &vote.deadline {
+            if dl < &Utc::today().naive_utc() {
+                VoteStatus::Closed
+            } else {
+                VoteStatus::Collecting
+            }
+        } else {
+            VoteStatus::Collecting
+        },
+    }))
 }
 
 #[derive(Debug, Clone, Serialize, QueryableByName)]

@@ -1,5 +1,6 @@
-use std::ops::Bound;
+use std::{ops::Bound, str::FromStr};
 
+use crate::error::Error;
 use crate::schema::*;
 use chrono::NaiveDate;
 use diesel::{Insertable, Queryable};
@@ -7,10 +8,21 @@ use serde::{Deserialize, Serialize};
 
 use crate::diesel_derive_enum::DbEnum;
 
-#[derive(Debug, Clone, Serialize, Deserialize, DbEnum)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum VoteStatus {
     Collecting,
     Closed,
+}
+
+impl FromStr for VoteStatus {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Collecting" => Ok(Self::Collecting),
+            "Closed" => Ok(Self::Closed),
+            _ => Err(Error::BusinessError(format!("invalid vote status({})", s))),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Queryable, Identifiable)]
@@ -37,6 +49,7 @@ pub struct UserInsertion {
 pub struct Organization {
     pub id: i32,
     pub name: String,
+    pub version: i64,
 }
 
 #[derive(Debug, Clone, Deserialize, Insertable)]
@@ -67,8 +80,8 @@ pub struct Vote {
     pub id: i32,
     pub name: String,
     pub deadline: Option<NaiveDate>,
-    pub status: VoteStatus,
     pub organization_id: i32,
+    pub version: i64,
 }
 
 #[derive(Debug, Clone, Deserialize, Insertable)]
@@ -76,16 +89,14 @@ pub struct Vote {
 pub struct VoteInsertion {
     pub name: String,
     pub deadline: Option<NaiveDate>,
-    pub status: VoteStatus,
     pub organization_id: i32,
 }
 
-#[derive(Debug, Clone, AsChangeset)]
+#[derive(Debug, Clone, AsChangeset, Queryable)]
 #[table_name = "votes"]
 pub struct VoteUpdation {
     pub name: String,
     pub deadline: Option<NaiveDate>,
-    pub status: VoteStatus,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, DbEnum)]
@@ -101,6 +112,7 @@ pub struct Question {
     pub description: String,
     pub vote_id: i32,
     pub type_: QuestionType,
+    pub version: i64,
 }
 
 #[derive(Debug, Clone, Deserialize, Insertable)]
@@ -182,4 +194,12 @@ pub struct DateInsertion {
 pub struct InviteCode {
     id: i32,
     code: String,
+}
+
+#[derive(Debug, Insertable)]
+#[table_name = "vote_update_marks"]
+pub struct VoteReadMarkInsertion {
+    pub vote_id: i32,
+    pub user_id: i32,
+    pub has_updated: bool,
 }

@@ -43,6 +43,16 @@ table! {
     organizations (id) {
         id -> Int4,
         name -> Varchar,
+        version -> Int8,
+    }
+}
+
+table! {
+    question_update_marks (id) {
+        id -> Int4,
+        question_id -> Int4,
+        user_id -> Int4,
+        has_updated -> Bool,
     }
 }
 
@@ -52,6 +62,7 @@ table! {
         description -> Varchar,
         vote_id -> Int4,
         type_ -> crate::models::QuestionTypeMapping,
+        version -> Int8,
     }
 }
 
@@ -75,12 +86,21 @@ table! {
 }
 
 table! {
+    vote_update_marks (id) {
+        id -> Int4,
+        vote_id -> Int4,
+        user_id -> Int4,
+        has_updated -> Bool,
+    }
+}
+
+table! {
     votes (id) {
         id -> Int4,
         name -> Varchar,
         deadline -> Nullable<Date>,
-        status -> crate::models::VoteStatusMapping,
         organization_id -> Int4,
+        version -> Int8,
     }
 }
 
@@ -91,9 +111,26 @@ joinable!(date_ranges -> votes (vote_id));
 joinable!(dates -> users (user_id));
 joinable!(dates -> votes (vote_id));
 joinable!(options -> questions (question_id));
+joinable!(question_update_marks -> questions (question_id));
+joinable!(question_update_marks -> users (user_id));
 joinable!(questions -> votes (vote_id));
 joinable!(users_organizations -> organizations (organization_id));
 joinable!(users_organizations -> users (user_id));
+joinable!(vote_update_marks -> users (user_id));
+joinable!(vote_update_marks -> votes (vote_id));
 joinable!(votes -> organizations (organization_id));
 
-allow_tables_to_appear_in_same_query!(answers, date_ranges, dates, invite_codes, options, organizations, questions, users, users_organizations, votes,);
+allow_tables_to_appear_in_same_query!(
+    answers,
+    date_ranges,
+    dates,
+    invite_codes,
+    options,
+    organizations,
+    question_update_marks,
+    questions,
+    users,
+    users_organizations,
+    vote_update_marks,
+    votes,
+);

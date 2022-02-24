@@ -5,15 +5,15 @@ use crate::actix_web::{
 };
 use crate::context::UserInfo;
 use crate::diesel::{
-    dsl::{exists, sql_query},
+    dsl::{date, exists, now, sql_query},
     pg::types::sql_types::Array,
     select,
     sql_types::{Bool, Integer},
-    BoolExpressionMethods, Connection, ExpressionMethods, QueryDsl, RunQueryDsl,
+    BoolExpressionMethods, Connection, ExpressionMethods, NullableExpressionMethods, QueryDsl, RunQueryDsl,
 };
 use crate::error::Error;
 use crate::handlers::DB;
-use crate::models::{AnswerInsertion, QuestionType, VoteStatus};
+use crate::models::{AnswerInsertion, QuestionType};
 use crate::schema::{answers, options, organizations, questions, users, users_organizations, votes};
 use crate::serde::Serialize;
 
@@ -32,7 +32,7 @@ pub async fn submit_answer(user_info: UserInfo, Path((qst_id,)): Path<(i32,)>, J
                 .filter(
                     questions::dsl::id
                         .eq(qst_id)
-                        .and(votes::dsl::status.eq(VoteStatus::Collecting))
+                        .and(votes::deadline.is_null().or(votes::deadline.gt(date(now).nullable())))
                         .and(users_organizations::dsl::user_id.eq(user_info.id)),
                 ),
         ))

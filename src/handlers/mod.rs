@@ -82,21 +82,20 @@ pub struct Signup {
     invite_code: String,
 }
 
-pub async fn signup(body: Json<Signup>, db: Data<Pool<ConnectionManager<PgConnection>>>) -> Result<HttpResponse, Error> {
+pub async fn signup(Json(req): Json<Signup>, db: Data<Pool<ConnectionManager<PgConnection>>>) -> Result<HttpResponse, Error> {
     use crate::schema::invite_codes::dsl::*;
     let conn = db.get()?;
     conn.transaction::<(), Error, _>(|| {
-        let l = invite_codes.filter(code.eq(&body.0.invite_code)).for_update().load::<crate::models::InviteCode>(&conn)?;
-        if l.is_empty() {
+        let deleted = diesel::delete(invite_codes.filter(code.eq(&req.invite_code))).execute(&conn)?;
+        if deleted == 0 {
             return Err(Error::BusinessError("invalid invite code".into()));
         }
-        diesel::delete(invite_codes.filter(code.eq(&body.0.invite_code))).execute(&conn)?;
         let slt = random_salt();
         let insertion = crate::models::UserInsertion {
-            nickname: body.0.nickname,
-            phone: body.0.phone,
-            email: body.0.email,
-            password: hash_password(&body.0.password, &slt),
+            nickname: req.nickname,
+            phone: req.phone,
+            email: req.email,
+            password: hash_password(&req.password, &slt),
             salt: slt,
         };
         diesel::insert_into(users).values(insertion).execute(&conn)?;

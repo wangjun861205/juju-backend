@@ -55,7 +55,7 @@ where
     fn poll_ready(&mut self, ctx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
         self.service.poll_ready(ctx)
     }
-    fn call(&mut self, mut req: Self::Request) -> Self::Future {
+    fn call(&mut self, req: Self::Request) -> Self::Future {
         match req.cookie(JWT_TOKEN) {
             None => return Box::pin(async move { Err(ErrorUnauthorized("unauthorized")) }),
             Some(jwt) => match dotenv::var(JWT_SECRET) {

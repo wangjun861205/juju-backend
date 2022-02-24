@@ -5,13 +5,7 @@ use diesel::sql_types::{BigInt, Date, Integer};
 use crate::actix_web::web::{Json, Path, Query};
 use crate::chrono::NaiveDate;
 use crate::context::UserInfo;
-use crate::diesel::{
-    delete,
-    dsl::{exists, sql},
-    insert_into,
-    query_dsl::QueryDsl,
-    select, sql_query, BoolExpressionMethods, Connection, ExpressionMethods, GroupByDsl, RunQueryDsl,
-};
+use crate::diesel::{delete, dsl::exists, insert_into, query_dsl::QueryDsl, select, sql_query, BoolExpressionMethods, Connection, ExpressionMethods, RunQueryDsl};
 use crate::error::Error;
 use crate::handlers::DB;
 use crate::models;
@@ -254,13 +248,4 @@ pub async fn year_report(user_info: UserInfo, Path((vote_id,)): Path<(i32,)>, Qu
 struct DateReport {
     date: NaiveDate,
     percentage: i32,
-}
-
-fn gen_date_report(vote_id: i32, db: DB) -> Result<Vec<DateReport>, Error> {
-    let conn = db.get()?;
-    let l = dates::table
-        .group_by(dates::dsl::date_)
-        .select((dates::dsl::date_, sql::<Integer>("(count(*)::float / select count(u.id) from users as u join users_organizations as uo on u.id = uo.user_id join organizations as o on uo.organization_id = o.id join votes as v on o.id = v.organization_id where vote_id = ?) * 100)::int").bind::<Integer, _>(vote_id)))
-        .load::<(NaiveDate, i32)>(&conn)?;
-    Ok(l.into_iter().map(|v| DateReport { date: v.0, percentage: v.1 }).collect())
 }
