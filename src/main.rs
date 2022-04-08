@@ -50,13 +50,14 @@ async fn main() -> Result<(), std::io::Error> {
                         .service(
                             scope("organizations")
                                 .route("", get().to(handlers::organization::list))
-                                .route("", post().to(handlers::organization::create_organization))
+                                .route("", post().to(handlers::organization::create))
                                 .service(
                                     scope("{organization_id}")
-                                        .route("", get().to(handlers::organization::organization_detail))
+                                        .route("", get().to(handlers::organization::detail))
                                         .route("", put().to(handlers::organization::update))
                                         .route("", delete().to(handlers::organization::delete_organization))
-                                        .service(scope("votes").route("", post().to(handlers::vote::create)).route("", get().to(handlers::vote::list))),
+                                        .service(scope("votes").route("", post().to(handlers::vote::create)).route("", get().to(handlers::vote::list)))
+                                        .service(scope("users").route("", post().to(handlers::organization::add_users))),
                                 ),
                         )
                         .service(
@@ -91,7 +92,8 @@ async fn main() -> Result<(), std::io::Error> {
                                     .service(scope("options").route("", post().to(handlers::option::add_opts)).route("", get().to(handlers::option::list)))
                                     .service(scope("answers").route("", get().to(handlers::answer::answer_list)).route("", put().to(handlers::answer::submit_answer))), // .service(scope("report").route("", get().to(handlers::question::gen_question_report))),
                             ),
-                        ),
+                        )
+                        .service(scope("users").route("", get().to(handlers::user::find))),
                 ),
         )
     })

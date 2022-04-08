@@ -97,6 +97,7 @@ pub struct VoteInsertion {
 pub struct VoteUpdation {
     pub name: String,
     pub deadline: Option<NaiveDate>,
+    pub version: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, DbEnum)]
@@ -121,6 +122,7 @@ pub struct QuestionInsertion {
     pub description: String,
     pub vote_id: i32,
     pub type_: QuestionType,
+    pub version: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Identifiable, Queryable, Associations)]
@@ -197,9 +199,9 @@ pub struct InviteCode {
 }
 
 #[derive(Debug, Insertable)]
-#[table_name = "vote_update_marks"]
+#[table_name = "vote_read_marks"]
 pub struct VoteReadMarkInsertion {
     pub vote_id: i32,
     pub user_id: i32,
-    pub has_updated: bool,
+    pub version: i64,
 }

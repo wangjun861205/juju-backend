@@ -36,5 +36,5 @@ impl UpdateResponse {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CreateResponse {
-    pub id: usize,
+    pub id: i32,
 }

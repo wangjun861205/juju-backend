@@ -1,19 +1,21 @@
 use crate::actix_web::web::{Json, Path, Query};
-use crate::chrono::{DateTime, Local, NaiveDate, Utc};
+use crate::chrono::{DateTime, NaiveDate, Utc};
 use crate::context::UserInfo;
 use crate::diesel::{
     delete,
     dsl::{exists, sql, sql_query, update as update_},
     insert_into, select,
     sql_types::*,
-    BelongingToDsl, BoolExpressionMethods, Connection, ExpressionMethods, QueryDsl, RunQueryDsl,
+    BoolExpressionMethods, Connection, ExpressionMethods, GroupByDsl, QueryDsl, RunQueryDsl,
 };
 use crate::error::Error;
 use crate::handlers::DB;
-use crate::models::{Date, Question, Vote, VoteInsertion, VoteReadMarkInsertion, VoteStatus, VoteUpdation as MVoteUpdation};
+use crate::models::{Date, Question, Vote, VoteInsertion, VoteReadMarkInsertion, VoteStatus};
+use crate::request::Pagination;
 use crate::response::{CreateResponse, DeleteResponse, List, UpdateResponse};
-use crate::schema::{organizations, questions, users, users_organizations, vote_update_marks, votes};
+use crate::schema::{organizations, question_read_marks, questions, users, users_organizations, vote_read_marks, votes};
 use crate::serde::{Deserialize, Serialize};
+use std::ops::Add;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Creation {
@@ -40,20 +42,21 @@ pub async fn create(user_info: UserInfo, Path((org_id,)): Path<(i32,)>, Json(bod
                 deadline: if let Some(dl) = body.deadline { Some(dl.naive_utc().date()) } else { None },
                 organization_id: org_id,
             })
-            .execute(&conn)?;
+            .returning(votes::id)
+            .get_result::<i32>(&conn)?;
         let user_ids: Vec<i32> = users::table
             .inner_join(users_organizations::table.inner_join(organizations::table))
             .filter(organizations::id.eq(org_id))
             .select(users::id)
             .load(&conn)?;
-        insert_into(vote_update_marks::table)
+        insert_into(vote_read_marks::table)
             .values(
                 user_ids
                     .into_iter()
                     .map(|id| VoteReadMarkInsertion {
                         user_id: id,
                         vote_id: vote_id as i32,
-                        has_updated: true,
+                        version: 0,
                     })
                     .collect::<Vec<VoteReadMarkInsertion>>(),
             )
@@ -72,19 +75,19 @@ pub struct VoteUpdation {
 pub async fn update(user_info: UserInfo, Path((vote_id,)): Path<(i32,)>, Json(VoteUpdation { name, deadline }): Json<VoteUpdation>, db: DB) -> Result<Json<UpdateResponse>, Error> {
     let conn = db.get()?;
     let updated: usize = conn.transaction::<_, Error, _>(|| {
-        let mut vote: MVoteUpdation = users::table
-            .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table)))
-            .filter(users::id.eq(user_info.id).and(votes::id.eq(vote_id)))
-            .select((votes::name, votes::deadline))
-            .for_update()
-            .first(&conn)?;
-        update_(vote_update_marks::table)
-            .filter(vote_update_marks::vote_id.eq(vote_id))
-            .set(vote_update_marks::has_updated.eq(true))
+        let updated = update_(votes::table)
+            .filter(
+                votes::id.eq(vote_id).and(
+                    votes::id.eq_any(
+                        users::table
+                            .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table)))
+                            .filter(users::id.eq(user_info.id))
+                            .select(votes::id),
+                    ),
+                ),
+            )
+            .set((votes::name.eq(name), votes::deadline.eq(deadline), votes::version.eq(votes::version.add(1))))
             .execute(&conn)?;
-        vote.name = name;
-        vote.deadline = deadline;
-        let updated = update_(votes::table).filter(votes::id.eq(vote_id)).set(vote).execute(&conn)?;
         Ok(updated)
     })?;
     Ok(Json(UpdateResponse { updated }))
@@ -95,6 +98,7 @@ pub struct Item {
     id: i32,
     name: String,
     deadline: Option<NaiveDate>,
+    version: i64,
     status: String,
     has_updated: bool,
 }
@@ -106,35 +110,35 @@ struct VoteDetail {
     questions: Vec<Question>,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct VoteParam {
-    page: i64,
-    size: i64,
-}
-
-pub async fn list(user_info: UserInfo, param: Query<VoteParam>, organization_id: Path<(i32,)>, db: DB) -> Result<Json<List<Item>>, Error> {
+pub async fn list(user_info: UserInfo, param: Query<Pagination>, Path((org_id,)): Path<(i32,)>, db: DB) -> Result<Json<List<Item>>, Error> {
     let conn = db.get()?;
     let (votes, total) = conn.transaction::<(Vec<Item>, i64), Error, _>(|| {
         let total: i64 = users::table
             .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table)))
-            .filter(users::id.eq(user_info.id).and(organizations::id.eq(organization_id.0 .0)))
+            .filter(users::id.eq(user_info.id).and(organizations::id.eq(org_id)))
             .count()
             .get_result(&conn)?;
         let votes: Vec<Item> = users::table
-            .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table.inner_join(vote_update_marks::table))))
+            .inner_join(
+                users_organizations::table
+                    .inner_join(organizations::table.inner_join(votes::table.inner_join(vote_read_marks::table).left_join(questions::table.left_join(question_read_marks::table)))),
+            )
             .select((
                 votes::id,
                 votes::name,
                 votes::deadline,
+                votes::version,
                 sql::<Text>("CASE WHEN votes.deadline < DATE(NOW()) THEN 'Closed' ELSE 'Collecting' END"),
-                vote_update_marks::has_updated,
+                sql::<Bool>("SUM(votes.version) > SUM(vote_read_marks.version) OR SUM(questions.version) > SUM(question_read_marks.version)"),
             ))
             .filter(
                 users::id
                     .eq(user_info.id)
-                    .and(organizations::id.eq(organization_id.0 .0))
-                    .and(vote_update_marks::user_id.eq(user_info.id)),
+                    .and(organizations::id.eq(org_id))
+                    .and(vote_read_marks::user_id.eq(user_info.id))
+                    .and(question_read_marks::user_id.eq(user_info.id).or(question_read_marks::user_id.is_null())),
             )
+            .group_by((votes::id, votes::name, votes::deadline, votes::version))
             .offset((param.page - 1) * param.size)
             .limit(param.size)
             .load::<Item>(&conn)?;
@@ -158,11 +162,11 @@ pub async fn detail(user_info: UserInfo, Path((vote_id,)): Path<(i32,)>, db: DB)
             .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table)))
             .filter(users::dsl::id.eq(user_info.id).and(votes::dsl::id.eq(vote_id)))
             .select(votes::all_columns)
-            .for_update()
+            .for_share()
             .get_result(&conn)?;
-        update_(vote_update_marks::table)
-            .filter(vote_update_marks::user_id.eq(user_info.id).and(vote_update_marks::vote_id.eq(vote_id)))
-            .set(vote_update_marks::has_updated.eq(false))
+        update_(vote_read_marks::table)
+            .filter(vote_read_marks::user_id.eq(user_info.id).and(vote_read_marks::vote_id.eq(vote_id)))
+            .set(vote_read_marks::version.eq(vote.version))
             .execute(&conn)?;
         Ok(vote)
     })?;

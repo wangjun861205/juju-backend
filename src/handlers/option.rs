@@ -8,7 +8,7 @@ use crate::error::Error;
 use crate::handlers::DB;
 use crate::models::OptInsertion;
 use crate::response::{CreateResponse, DeleteResponse};
-use crate::schema::{answers, options, organizations, question_update_marks, questions, users, users_organizations, vote_update_marks, votes};
+use crate::schema::{answers, options, organizations, question_read_marks, questions, users, users_organizations, vote_read_marks, votes};
 use crate::serde::Deserialize;
 use crate::serde::Serialize;
 use crate::{
@@ -64,28 +64,25 @@ pub struct OptAdd {
 
 pub async fn add_opts(user_info: UserInfo, Path((qst_id,)): Path<(i32,)>, body: Json<Vec<String>>, db: DB) -> Result<Json<CreateResponse>, Error> {
     let conn = db.get()?;
-    let id = conn.transaction::<usize, Error, _>(|| {
-        votes::table
-            .inner_join(questions::table.inner_join(question_update_marks::table))
-            .inner_join(vote_update_marks::table)
-            .filter(questions::id.eq(qst_id))
-            .for_update()
-            .execute(&conn)?;
-        let vote_id: i32 = users::table
+    let id = conn.transaction::<_, Error, _>(|| {
+        let (org_id, vote_id): (i32, i32) = users::table
             .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table.inner_join(questions::table))))
             .filter(users::id.eq(user_info.id).and(questions::id.eq(qst_id)))
-            .select(votes::id)
+            .select((organizations::id, votes::id))
+            .for_update()
             .first(&conn)?;
-        let id: usize = insert_into(options::table)
+        let id = insert_into(options::table)
             .values::<Vec<OptInsertion>>(body.0.into_iter().map(|o| OptInsertion { question_id: qst_id, option: o }).collect())
+            .returning(options::id)
+            .get_result::<i32>(&conn)?;
+        update_(organizations::table)
+            .filter(organizations::id.eq(org_id))
+            .set(organizations::version.eq(organizations::version.add(1)))
             .execute(&conn)?;
-        update_(vote_update_marks::table)
-            .filter(vote_update_marks::vote_id.eq(vote_id))
-            .set(vote_update_marks::has_updated.eq(true))
-            .execute(&conn)?;
-        update_(question_update_marks::table)
-            .filter(question_update_marks::question_id.eq(qst_id))
-            .set(question_update_marks::has_updated.eq(true))
+        update_(votes::table).filter(votes::id.eq(vote_id)).set(votes::version.eq(votes::version.add(1))).execute(&conn)?;
+        update_(questions::table)
+            .filter(questions::id.eq(qst_id))
+            .set(questions::version.eq(questions::version.add(1)))
             .execute(&conn)?;
         Ok(id)
     })?;

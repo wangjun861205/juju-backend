@@ -40,6 +40,15 @@ table! {
 }
 
 table! {
+    organization_read_marks (id) {
+        id -> Int4,
+        version -> Int8,
+        organization_id -> Int4,
+        user_id -> Int4,
+    }
+}
+
+table! {
     organizations (id) {
         id -> Int4,
         name -> Varchar,
@@ -48,11 +57,11 @@ table! {
 }
 
 table! {
-    question_update_marks (id) {
+    question_read_marks (id) {
         id -> Int4,
         question_id -> Int4,
         user_id -> Int4,
-        has_updated -> Bool,
+        version -> Int8,
     }
 }
 
@@ -86,11 +95,11 @@ table! {
 }
 
 table! {
-    vote_update_marks (id) {
+    vote_read_marks (id) {
         id -> Int4,
         vote_id -> Int4,
         user_id -> Int4,
-        has_updated -> Bool,
+        version -> Int8,
     }
 }
 
@@ -111,13 +120,15 @@ joinable!(date_ranges -> votes (vote_id));
 joinable!(dates -> users (user_id));
 joinable!(dates -> votes (vote_id));
 joinable!(options -> questions (question_id));
-joinable!(question_update_marks -> questions (question_id));
-joinable!(question_update_marks -> users (user_id));
+joinable!(organization_read_marks -> organizations (organization_id));
+joinable!(organization_read_marks -> users (user_id));
+joinable!(question_read_marks -> questions (question_id));
+joinable!(question_read_marks -> users (user_id));
 joinable!(questions -> votes (vote_id));
 joinable!(users_organizations -> organizations (organization_id));
 joinable!(users_organizations -> users (user_id));
-joinable!(vote_update_marks -> users (user_id));
-joinable!(vote_update_marks -> votes (vote_id));
+joinable!(vote_read_marks -> users (user_id));
+joinable!(vote_read_marks -> votes (vote_id));
 joinable!(votes -> organizations (organization_id));
 
 allow_tables_to_appear_in_same_query!(
@@ -126,11 +137,12 @@ allow_tables_to_appear_in_same_query!(
     dates,
     invite_codes,
     options,
+    organization_read_marks,
     organizations,
-    question_update_marks,
+    question_read_marks,
     questions,
     users,
     users_organizations,
-    vote_update_marks,
+    vote_read_marks,
     votes,
 );
