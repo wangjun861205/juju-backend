@@ -1,4 +1,5 @@
 pub mod answer;
+pub mod authorizer;
 pub mod date;
 pub mod option;
 pub mod organization;

@@ -26,15 +26,15 @@ pub async fn find(Query(FindUserParams { phone, exclude_org_id, page, size }): Q
     let list: Vec<User>;
     if let Some(org_id) = exclude_org_id {
         total = users::table
-            .inner_join(users_organizations::table.inner_join(organizations::table))
-            .filter(users::phone.like(format!("%{phone}%")).and(organizations::id.ne(org_id)))
+            .left_join(users_organizations::table.left_join(organizations::table))
+            .filter(users::phone.like(format!("%{phone}%")).and(organizations::id.ne(org_id).or(organizations::id.is_null())))
             .select(users::id)
             .distinct()
             .count()
             .get_result(&conn)?;
         list = users::table
-            .inner_join(users_organizations::table.inner_join(organizations::table))
-            .filter(users::phone.like(format!("%{phone}%")).and(organizations::id.ne(org_id)))
+            .left_join(users_organizations::table.left_join(organizations::table))
+            .filter(users::phone.like(format!("%{phone}%")).and(organizations::id.ne(org_id).or(organizations::id.is_null())))
             .select((users::id, users::nickname))
             .distinct()
             .limit(size)

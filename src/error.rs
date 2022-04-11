@@ -41,6 +41,9 @@ pub enum Error {
 
     #[error("failed to parse date")]
     ParseDate(#[from] chrono::ParseError),
+
+    #[error("server error: {0}")]
+    ServerError(String),
 }
 
 impl ResponseError for Error {}

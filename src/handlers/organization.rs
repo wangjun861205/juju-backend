@@ -6,6 +6,7 @@ use crate::diesel::{
     AsChangeset, BoolExpressionMethods, Connection, ExpressionMethods, GroupByDsl, JoinOnDsl, NullableExpressionMethods, QueryDsl, RunQueryDsl,
 };
 use crate::error::Error;
+use crate::handlers::user::User;
 use crate::handlers::DB;
 use crate::models::{Organization, OrganizationInsertion, UsersOrganizationInsertion};
 use crate::request::Pagination;
@@ -13,10 +14,12 @@ use crate::response::{CreateResponse, DeleteResponse, UpdateResponse};
 use crate::schema::{organizations, question_read_marks, questions, users, users_organizations, vote_read_marks, votes};
 use crate::serde::{Deserialize, Serialize};
 use crate::{
-    actix_web::web::{HttpResponse, Json, Path, Query},
+    actix_web::web::{Data, HttpResponse, Json, Path, Query},
     schema::organization_read_marks,
 };
 
+use crate::authorizer::PgAuthorizer;
+use crate::handlers::authorizer::Authorizer;
 use crate::response::List;
 
 pub async fn delete_organization(user_info: UserInfo, Path((organization_id,)): Path<(i32,)>, db: DB) -> Result<Json<DeleteResponse>, Error> {
@@ -200,4 +203,24 @@ pub async fn add_users(user_info: UserInfo, Path((org_id,)): Path<(i32,)>, Json(
         Ok(())
     })?;
     Ok(HttpResponse::Ok().finish())
+}
+
+// list all users which belongs to one organization
+pub async fn users<T: Authorizer>(me: UserInfo, Path((org_id,)): Path<(i32,)>, db: DB, authorizer: Data<T>) -> Result<Json<List<User>>, Error> {
+    let conn = db.get()?;
+    let ok = authorizer.check_organization_read(me.id, org_id)?;
+    if !ok {
+        return Err(Error::BusinessError("no permission".into()));
+    }
+    let total: i64 = users::table
+        .inner_join(users_organizations::table.inner_join(organizations::table))
+        .filter(organizations::id.eq(org_id))
+        .count()
+        .get_result(&conn)?;
+    let list: Vec<User> = users::table
+        .inner_join(users_organizations::table.inner_join(organizations::table))
+        .select((users::id, users::nickname))
+        .filter(organizations::id.eq(org_id))
+        .load(&conn)?;
+    Ok(Json(List::new(list, total)))
 }
