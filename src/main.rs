@@ -103,7 +103,7 @@ async fn main() -> Result<(), std::io::Error> {
                                         .service(scope("answers").route("", get().to(handlers::answer::answer_list)).route("", put().to(handlers::answer::submit_answer))), // .service(scope("report").route("", get().to(handlers::question::gen_question_report))),
                                 ),
                             )
-                            .service(scope("users").route("", get().to(handlers::user::find))),
+                            .service(scope("users").route("", get().to(handlers::user::list))),
                     ),
             )
     })
