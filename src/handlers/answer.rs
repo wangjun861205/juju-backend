@@ -23,8 +23,9 @@ pub struct AnswerValidResult {
     is_valid: bool,
 }
 
-pub async fn submit_answer(user_info: UserInfo, Path((qst_id,)): Path<(i32,)>, Json(answer): Json<Vec<i32>>, db: DB) -> Result<HttpResponse, Error> {
+pub async fn submit_answer(user_info: UserInfo, qst_id: Path<(i32,)>, Json(answer): Json<Vec<i32>>, db: DB) -> Result<HttpResponse, Error> {
     let conn = db.get()?;
+    let qst_id = qst_id.into_inner().0;
     conn.transaction::<_, Error, _>(|| {
         let is_vote_valid = select(exists(
             options::table
@@ -89,8 +90,9 @@ pub struct AnswerList {
     answers: Vec<i32>,
 }
 
-pub async fn answer_list(user_info: UserInfo, Path((qst_id,)): Path<(i32,)>, db: DB) -> Result<Json<AnswerList>, Error> {
+pub async fn answer_list(user_info: UserInfo, qst_id: Path<(i32,)>, db: DB) -> Result<Json<AnswerList>, Error> {
     let conn = db.get()?;
+    let qst_id = qst_id.into_inner().0;
     let resp = conn.transaction::<AnswerList, Error, _>(|| {
         let question_type = users::table
             .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table.inner_join(questions::table))))

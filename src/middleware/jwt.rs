@@ -17,16 +17,16 @@ pub static JWT_SECRET: &str = "JWT_SECRET";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claim {
     pub uid: i32,
+    pub exp: usize,
 }
 
 pub struct JWT;
 
-impl<S> Transform<S> for JWT
+impl<S> Transform<S, ServiceRequest> for JWT
 where
-    S: Service<Request = ServiceRequest, Response = ServiceResponse, Error = Error>,
+    S: Service<ServiceRequest, Error = Error, Response = ServiceResponse>,
     S::Future: 'static,
 {
-    type Request = ServiceRequest;
     type Response = ServiceResponse;
     type Error = Error;
     type Transform = JWTService<S>;
@@ -42,20 +42,18 @@ pub struct JWTService<S> {
     service: S,
 }
 
-impl<S> Service for JWTService<S>
+impl<S: Service<ServiceRequest, Error = Error, Response = ServiceResponse>> Service<ServiceRequest> for JWTService<S>
 where
-    S: Service<Request = ServiceRequest, Response = ServiceResponse, Error = Error>,
     S::Future: 'static,
 {
-    type Request = ServiceRequest;
     type Response = ServiceResponse;
     type Error = Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Error>>>>;
 
-    fn poll_ready(&mut self, ctx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+    fn poll_ready(&self, ctx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
         self.service.poll_ready(ctx)
     }
-    fn call(&mut self, req: Self::Request) -> Self::Future {
+    fn call(&self, req: ServiceRequest) -> Self::Future {
         match req.cookie(JWT_TOKEN) {
             None => return Box::pin(async move { Err(ErrorUnauthorized("unauthorized")) }),
             Some(jwt) => match dotenv::var(JWT_SECRET) {
@@ -63,11 +61,7 @@ where
                     match jsonwebtoken::decode::<Claim>(
                         jwt.value(),
                         &jsonwebtoken::DecodingKey::from_secret(sct.as_bytes()),
-                        &jsonwebtoken::Validation {
-                            algorithms: vec![jsonwebtoken::Algorithm::HS256],
-                            validate_exp: false,
-                            ..Default::default()
-                        },
+                        &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
                     ) {
                         Ok(c) => {
                             req.extensions_mut().insert(UserInfo { id: c.claims.uid });

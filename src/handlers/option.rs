@@ -30,7 +30,8 @@ pub struct ListResponse {
     items: Vec<Item>,
 }
 
-pub async fn list(user_info: UserInfo, Path((qst_id,)): Path<(i32,)>, db: DB) -> Result<Json<ListResponse>, Error> {
+pub async fn list(user_info: UserInfo, qst_id: Path<(i32,)>, db: DB) -> Result<Json<ListResponse>, Error> {
+    let qst_id = qst_id.into_inner().0;
     let conn = db.get()?;
     let res = conn.transaction::<ListResponse, Error, _>(|| {
         let question_type: QuestionType = users::table
@@ -62,7 +63,8 @@ pub struct OptAdd {
     pub option: String,
 }
 
-pub async fn add_opts(user_info: UserInfo, Path((qst_id,)): Path<(i32,)>, body: Json<Vec<String>>, db: DB) -> Result<Json<CreateResponse>, Error> {
+pub async fn add_opts(user_info: UserInfo, qst_id: Path<(i32,)>, body: Json<Vec<String>>, db: DB) -> Result<Json<CreateResponse>, Error> {
+    let qst_id = qst_id.into_inner().0;
     let conn = db.get()?;
     let id = conn.transaction::<_, Error, _>(|| {
         let (org_id, vote_id): (i32, i32) = users::table
@@ -89,7 +91,8 @@ pub async fn add_opts(user_info: UserInfo, Path((qst_id,)): Path<(i32,)>, body: 
     Ok(Json(CreateResponse { id: id }))
 }
 
-pub async fn delete(user_info: UserInfo, Path((option_id,)): Path<(i32,)>, db: DB) -> Result<Json<DeleteResponse>, Error> {
+pub async fn delete(user_info: UserInfo, option_id: Path<(i32,)>, db: DB) -> Result<Json<DeleteResponse>, Error> {
+    let option_id = option_id.into_inner().0;
     let conn = db.get()?;
     let deleted = conn.transaction::<_, Error, _>(|| {
         let (oid, vid, qid): (i32, i32, i32) = organizations::table

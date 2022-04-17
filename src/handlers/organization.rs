@@ -1,9 +1,9 @@
 use crate::context::UserInfo;
 use crate::diesel::{
-    dsl::{any, exists, insert_into, select, sql, update as update_},
+    dsl::{any, insert_into, sql, update as update_},
     helper_types::Eq,
     sql_types::{BigInt, Bool},
-    AsChangeset, BoolExpressionMethods, Connection, ExpressionMethods, GroupByDsl, JoinOnDsl, NullableExpressionMethods, QueryDsl, RunQueryDsl,
+    AsChangeset, BoolExpressionMethods, Connection, ExpressionMethods, GroupByDsl, QueryDsl, RunQueryDsl,
 };
 use crate::error::Error;
 use crate::handlers::user::User;
@@ -14,15 +14,15 @@ use crate::response::{CreateResponse, DeleteResponse, UpdateResponse};
 use crate::schema::{organizations, question_read_marks, questions, users, users_organizations, vote_read_marks, votes};
 use crate::serde::{Deserialize, Serialize};
 use crate::{
-    actix_web::web::{Data, HttpResponse, Json, Path, Query},
+    actix_web::web::{Data, Json, Path, Query},
     schema::organization_read_marks,
 };
 
-use crate::authorizer::PgAuthorizer;
 use crate::handlers::authorizer::Authorizer;
 use crate::response::List;
 
-pub async fn delete_organization(user_info: UserInfo, Path((organization_id,)): Path<(i32,)>, db: DB) -> Result<Json<DeleteResponse>, Error> {
+pub async fn delete_organization(user_info: UserInfo, organization_id: Path<(i32,)>, db: DB) -> Result<Json<DeleteResponse>, Error> {
+    let organization_id = organization_id.into_inner().0;
     let query = diesel::delete(organizations::table).filter(
         organizations::id.eq(any(users_organizations::table
             .filter(users_organizations::user_id.eq(user_info.id).and(users_organizations::organization_id.eq(organization_id)))
@@ -31,7 +31,8 @@ pub async fn delete_organization(user_info: UserInfo, Path((organization_id,)): 
     Ok(Json(DeleteResponse::new(query.execute(&db.get()?)?)))
 }
 
-pub async fn detail(user_info: UserInfo, Path((organization_id,)): Path<(i32,)>, db: DB) -> Result<Json<Organization>, Error> {
+pub async fn detail(user_info: UserInfo, organization_id: Path<(i32,)>, db: DB) -> Result<Json<Organization>, Error> {
+    let organization_id = organization_id.into_inner().0;
     let conn = db.get()?;
     let org: Organization = conn.transaction::<_, Error, _>(|| {
         let org = users::table
@@ -127,7 +128,8 @@ pub struct UpdateRequest {
     name: String,
 }
 
-pub async fn update(user_info: UserInfo, Path((org_id,)): Path<(i32,)>, Json(req): Json<UpdateRequest>, db: DB) -> Result<Json<UpdateResponse>, Error> {
+pub async fn update(user_info: UserInfo, org_id: Path<(i32,)>, Json(req): Json<UpdateRequest>, db: DB) -> Result<Json<UpdateResponse>, Error> {
+    let org_id = org_id.into_inner().0;
     let updated = update_(organizations::table)
         .filter(
             organizations::id
@@ -144,7 +146,8 @@ pub async fn update(user_info: UserInfo, Path((org_id,)): Path<(i32,)>, Json(req
     Ok(Json(UpdateResponse::new(updated)))
 }
 
-pub async fn add_users(user_info: UserInfo, Path((org_id,)): Path<(i32,)>, Json(user_ids): Json<Vec<i32>>, db: DB) -> Result<HttpResponse, Error> {
+pub async fn add_users(user_info: UserInfo, org_id: Path<(i32,)>, Json(user_ids): Json<Vec<i32>>, db: DB) -> Result<Json<()>, Error> {
+    let org_id = org_id.into_inner().0;
     let conn = db.get()?;
     conn.transaction::<_, Error, _>(|| {
         users_organizations::table
@@ -202,11 +205,12 @@ pub async fn add_users(user_info: UserInfo, Path((org_id,)): Path<(i32,)>, Json(
             .execute(&conn)?;
         Ok(())
     })?;
-    Ok(HttpResponse::Ok().finish())
+    Ok(Json(()))
 }
 
 // list all users which belongs to one organization
-pub async fn users<T: Authorizer>(me: UserInfo, Path((org_id,)): Path<(i32,)>, db: DB, authorizer: Data<T>) -> Result<Json<List<User>>, Error> {
+pub async fn users<T: Authorizer>(me: UserInfo, org_id: Path<(i32,)>, db: DB, authorizer: Data<T>) -> Result<Json<List<User>>, Error> {
+    let org_id = org_id.into_inner().0;
     let conn = db.get()?;
     let ok = authorizer.check_organization_read(me.id, org_id)?;
     if !ok {

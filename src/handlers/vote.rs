@@ -23,7 +23,8 @@ pub struct Creation {
     deadline: Option<DateTime<Utc>>,
 }
 
-pub async fn create(user_info: UserInfo, Path((org_id,)): Path<(i32,)>, Json(body): Json<Creation>, db: DB) -> Result<Json<CreateResponse>, Error> {
+pub async fn create(user_info: UserInfo, org_id: Path<(i32,)>, Json(body): Json<Creation>, db: DB) -> Result<Json<CreateResponse>, Error> {
+    let org_id = org_id.into_inner().0;
     let conn = db.get()?;
     let id = conn.transaction::<_, Error, _>(|| {
         let exists = select(exists(
@@ -72,7 +73,8 @@ pub struct VoteUpdation {
     deadline: Option<NaiveDate>,
 }
 
-pub async fn update(user_info: UserInfo, Path((vote_id,)): Path<(i32,)>, Json(VoteUpdation { name, deadline }): Json<VoteUpdation>, db: DB) -> Result<Json<UpdateResponse>, Error> {
+pub async fn update(user_info: UserInfo, vote_id: Path<(i32,)>, Json(VoteUpdation { name, deadline }): Json<VoteUpdation>, db: DB) -> Result<Json<UpdateResponse>, Error> {
+    let vote_id = vote_id.into_inner().0;
     let conn = db.get()?;
     let updated: usize = conn.transaction::<_, Error, _>(|| {
         let updated = update_(votes::table)
@@ -110,7 +112,8 @@ struct VoteDetail {
     questions: Vec<Question>,
 }
 
-pub async fn list(user_info: UserInfo, param: Query<Pagination>, Path((org_id,)): Path<(i32,)>, db: DB) -> Result<Json<List<Item>>, Error> {
+pub async fn list(user_info: UserInfo, param: Query<Pagination>, org_id: Path<(i32,)>, db: DB) -> Result<Json<List<Item>>, Error> {
+    let org_id = org_id.into_inner().0;
     let conn = db.get()?;
     let (votes, total) = conn.transaction::<(Vec<Item>, i64), Error, _>(|| {
         let total: i64 = users::table
@@ -155,7 +158,8 @@ pub struct Detail {
     status: VoteStatus,
 }
 
-pub async fn detail(user_info: UserInfo, Path((vote_id,)): Path<(i32,)>, db: DB) -> Result<Json<Detail>, Error> {
+pub async fn detail(user_info: UserInfo, vote_id: Path<(i32,)>, db: DB) -> Result<Json<Detail>, Error> {
+    let vote_id = vote_id.into_inner().0;
     let conn = db.get()?;
     let vote = conn.transaction::<_, Error, _>(|| {
         let vote: Vote = users::table
@@ -220,7 +224,8 @@ fn gen_question_report(question_id: i32, db: &DB) -> Result<QuestionReport, Erro
     })
 }
 
-pub async fn question_reports(user_info: UserInfo, Path((vote_id,)): Path<(i32,)>, db: DB) -> Result<Json<Vec<QuestionReport>>, Error> {
+pub async fn question_reports(user_info: UserInfo, vote_id: Path<(i32,)>, db: DB) -> Result<Json<Vec<QuestionReport>>, Error> {
+    let vote_id = vote_id.into_inner().0;
     let qids: Vec<i32> = users::table
         .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table.inner_join(questions::table))))
         .filter(users::id.eq(user_info.id).and(votes::id.eq(vote_id)))
@@ -230,7 +235,8 @@ pub async fn question_reports(user_info: UserInfo, Path((vote_id,)): Path<(i32,)
     Ok(Json(resports))
 }
 
-pub async fn delete_vote(user_info: UserInfo, Path((vote_id,)): Path<(i32,)>, db: DB) -> Result<Json<DeleteResponse>, Error> {
+pub async fn delete_vote(user_info: UserInfo, vote_id: Path<(i32,)>, db: DB) -> Result<Json<DeleteResponse>, Error> {
+    let vote_id = vote_id.into_inner().0;
     let deleted: usize = delete(votes::table)
         .filter(
             votes::id

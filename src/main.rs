@@ -27,7 +27,7 @@ pub mod request;
 pub mod response;
 mod schema;
 
-use actix_web::web::{delete, get, post, put, resource, scope};
+use actix_web::web::{delete, get, post, put, resource, scope, Data};
 use actix_web::HttpServer;
 use authorizer::PgAuthorizer;
 use diesel::pg::PgConnection;
@@ -44,10 +44,10 @@ async fn main() -> Result<(), std::io::Error> {
     HttpServer::new(move || {
         actix_web::App::new()
             .wrap(actix_web::middleware::Logger::default())
-            .data(pool.clone())
-            .data(PgAuthorizer::new(pool.clone()))
+            .app_data(Data::new(pool.clone()))
+            .app_data(Data::new(PgAuthorizer::new(pool.clone())))
             .service(
-                scope("/")
+                scope("")
                     .service(resource("login").route(post().to(handlers::login)))
                     .service(resource("signup").route(post().to(handlers::signup)))
                     .service(

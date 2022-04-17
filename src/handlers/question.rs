@@ -8,11 +8,7 @@ use crate::error::Error;
 use crate::handlers::DB;
 use crate::schema::*;
 use crate::{
-    actix_web::{
-        http::StatusCode,
-        web::{Json, Path},
-        HttpResponse,
-    },
+    actix_web::web::{Json, Path},
     response::{CreateResponse, DeleteResponse},
 };
 
@@ -40,13 +36,14 @@ pub struct UserID {
 
 pub async fn create(
     user_info: UserInfo,
-    Path((vote_id,)): Path<(i32,)>,
+    vote_id: Path<(i32,)>,
     Json(CreateRequest {
         question: QuestionInsertion { description, type_ },
         options,
     }): Json<CreateRequest>,
     db: DB,
 ) -> Result<Json<CreateResponse>, Error> {
+    let vote_id = vote_id.into_inner().0;
     let conn = db.get()?;
     let id = conn.transaction::<_, Error, _>(|| {
         let exists = select(exists(
@@ -91,7 +88,8 @@ pub struct Item {
     has_updated: bool,
 }
 
-pub async fn list(user_info: UserInfo, Path((vote_id,)): Path<(i32,)>, db: DB) -> Result<Json<List<Item>>, Error> {
+pub async fn list(user_info: UserInfo, vote_id: Path<(i32,)>, db: DB) -> Result<Json<List<Item>>, Error> {
+    let vote_id = vote_id.into_inner().0;
     let conn = db.get()?;
     let list = conn.transaction::<Vec<Item>, Error, _>(|| {
         let list = users::table
@@ -123,7 +121,8 @@ pub struct QuestionDetail {
     opts: Vec<Opt>,
 }
 
-pub async fn detail(user_info: UserInfo, Path((qst_id,)): Path<(i32,)>, db: DB) -> Result<Json<QuestionDetail>, Error> {
+pub async fn detail(user_info: UserInfo, qst_id: Path<(i32,)>, db: DB) -> Result<Json<QuestionDetail>, Error> {
+    let qst_id = qst_id.into_inner().0;
     let qst: Question = users::table
         .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table.inner_join(questions::table))))
         .filter(users::id.eq(user_info.id).and(questions::id.eq(qst_id)))
@@ -143,7 +142,8 @@ pub async fn detail(user_info: UserInfo, Path((qst_id,)): Path<(i32,)>, db: DB) 
     }))
 }
 
-pub async fn delete(user_info: UserInfo, Path((qst_id,)): Path<(i32,)>, db: DB) -> Result<Json<DeleteResponse>, Error> {
+pub async fn delete(user_info: UserInfo, qst_id: Path<(i32,)>, db: DB) -> Result<Json<DeleteResponse>, Error> {
+    let qst_id = qst_id.into_inner().0;
     let deleted = delete_(questions::table)
         .filter(
             questions::id

@@ -36,8 +36,9 @@ fn merge_date_range(mut ranges: Vec<DateRange>) -> Vec<DateRange> {
     result
 }
 
-pub async fn submit_date_ranges(user_info: UserInfo, Path((vote_id,)): Path<(i32,)>, Json(mut dates): Json<Vec<DateRange>>, db: DB) -> Result<Json<Vec<DateRange>>, Error> {
+pub async fn submit_date_ranges(user_info: UserInfo, vote_id: Path<(i32,)>, Json(mut dates): Json<Vec<DateRange>>, db: DB) -> Result<Json<Vec<DateRange>>, Error> {
     dates = merge_date_range(dates);
+    let vote_id = vote_id.into_inner().0;
     let conn = db.get()?;
     conn.transaction::<(), Error, _>(|| {
         let is_valid: bool = select(exists(
@@ -89,7 +90,8 @@ pub async fn submit_date_ranges(user_info: UserInfo, Path((vote_id,)): Path<(i32
     Ok(Json(dates))
 }
 
-pub async fn date_range_list(user_info: UserInfo, Path((vote_id,)): Path<(i32,)>, db: DB) -> Result<Json<Vec<DateRange>>, Error> {
+pub async fn date_range_list(user_info: UserInfo, vote_id: Path<(i32,)>, db: DB) -> Result<Json<Vec<DateRange>>, Error> {
+    let vote_id = vote_id.into_inner().0;
     let ranges = users::table
         .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table.inner_join(date_ranges::table))))
         .filter(users::id.eq(user_info.id).and(votes::id.eq(vote_id)).and(date_ranges::user_id.eq(user_info.id)))
@@ -192,7 +194,8 @@ pub struct MonthReportItem {
     rate: i32,
 }
 
-pub async fn month_report(user_info: UserInfo, Path((vote_id,)): Path<(i32,)>, Query(param): Query<MonthReportParam>, db: DB) -> Result<Json<Vec<MonthReportItem>>, Error> {
+pub async fn month_report(user_info: UserInfo, vote_id: Path<(i32,)>, Query(param): Query<MonthReportParam>, db: DB) -> Result<Json<Vec<MonthReportItem>>, Error> {
+    let vote_id = vote_id.into_inner().0;
     let is_valid: bool = select(exists(
         users::table
             .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table)))
@@ -231,7 +234,8 @@ pub struct YearReportItem {
     p100_count: i64,
 }
 
-pub async fn year_report(user_info: UserInfo, Path((vote_id,)): Path<(i32,)>, Query(param): Query<YearReportParam>, db: DB) -> Result<Json<Vec<YearReportItem>>, Error> {
+pub async fn year_report(user_info: UserInfo, vote_id: Path<(i32,)>, Query(param): Query<YearReportParam>, db: DB) -> Result<Json<Vec<YearReportItem>>, Error> {
+    let vote_id = vote_id.into_inner().0;
     let is_valid: bool = select(exists(
         users::table
             .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table)))

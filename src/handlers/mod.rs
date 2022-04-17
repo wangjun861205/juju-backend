@@ -10,6 +10,7 @@ pub mod vote;
 use actix_web::http::StatusCode;
 use diesel::{Connection, QueryDsl};
 use rand::Rng;
+use std::ops::Add;
 
 use crate::actix_web::{
     cookie::Cookie,
@@ -54,7 +55,10 @@ pub async fn login(body: Json<Login>, db: Data<Pool<ConnectionManager<PgConnecti
     if hash_password(&body.0.password, &l[0].salt) != l[0].password {
         return Ok(HttpResponse::build(StatusCode::FORBIDDEN).finish());
     }
-    let claim = Claim { uid: l[0].id };
+    let claim = Claim {
+        uid: l[0].id,
+        exp: chrono::Utc::now().add(chrono::Duration::days(30)).timestamp() as usize,
+    };
     let secret = dotenv::var(JWT_SECRET)?;
     let token = encode(&Header::new(Algorithm::HS256), &claim, &EncodingKey::from_secret(secret.as_bytes()))?;
 
@@ -69,7 +73,7 @@ fn random_salt() -> String {
     let mut slt = String::new();
     let mut rng = thread_rng();
     for _ in 0..32 {
-        let i = rng.gen_range(0, 61_usize);
+        let i = rng.gen_range(0..61_usize);
         slt.push(chars[i]);
     }
     slt
