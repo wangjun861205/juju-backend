@@ -1,13 +1,15 @@
 use actix_web::ResponseError;
 
+use crate::actix_multipart::MultipartError;
 use crate::actix_web;
-use crate::actix_web::http::{self, header};
+use crate::actix_web::http::{self, header, Error as HTTPError};
 use crate::chrono;
 use crate::diesel::result::Error as DieselError;
 use crate::dotenv::Error as DotError;
 use crate::jsonwebtoken::errors::Error as JsonWebTokenError;
 use crate::r2d2::Error as R2D2Error;
 use crate::thiserror::Error as ThisError;
+use std::io::Error as IOError;
 use std::num;
 
 #[derive(Debug, ThisError)]
@@ -34,7 +36,7 @@ pub enum Error {
     ParseIntError(#[from] num::ParseIntError),
 
     #[error("http error")]
-    HttpError(#[from] http::Error),
+    HTTPError(String),
 
     #[error("header error")]
     HeaderError(#[from] header::ToStrError),
@@ -44,6 +46,21 @@ pub enum Error {
 
     #[error("server error: {0}")]
     ServerError(String),
+
+    #[error("io error")]
+    IOError(#[from] IOError),
 }
 
 impl ResponseError for Error {}
+
+impl From<MultipartError> for Error {
+    fn from(err: MultipartError) -> Self {
+        Self::HTTPError(format!("{err:?}"))
+    }
+}
+
+impl From<HTTPError> for Error {
+    fn from(err: HTTPError) -> Self {
+        Self::HTTPError(format!("{err:?}"))
+    }
+}

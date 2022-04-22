@@ -1,11 +1,15 @@
 #[macro_use]
 extern crate diesel;
+extern crate actix_multipart;
 extern crate actix_web;
+extern crate bytes;
 extern crate casbin;
 extern crate chrono;
 extern crate diesel_derive_enum;
 extern crate dotenv;
 extern crate env_logger;
+extern crate futures;
+extern crate futures_util;
 extern crate hex;
 extern crate jsonwebtoken;
 extern crate r2d2;
@@ -48,6 +52,7 @@ async fn main() -> Result<(), std::io::Error> {
             .app_data(Data::new(PgAuthorizer::new(pool.clone())))
             .service(
                 scope("")
+                    .service(resource("upload").route(post().to(handlers::upload::upload)))
                     .service(resource("login").route(post().to(handlers::login)))
                     .service(resource("signup").route(post().to(handlers::signup)))
                     .service(
