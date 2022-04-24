@@ -2,7 +2,8 @@ use actix_web::ResponseError;
 
 use crate::actix_multipart::MultipartError;
 use crate::actix_web;
-use crate::actix_web::http::{self, header, Error as HTTPError};
+use crate::actix_web::error::BlockingError;
+use crate::actix_web::http::{header, Error as HTTPError};
 use crate::chrono;
 use crate::diesel::result::Error as DieselError;
 use crate::dotenv::Error as DotError;
@@ -62,5 +63,11 @@ impl From<MultipartError> for Error {
 impl From<HTTPError> for Error {
     fn from(err: HTTPError) -> Self {
         Self::HTTPError(format!("{err:?}"))
+    }
+}
+
+impl From<BlockingError> for Error {
+    fn from(e: BlockingError) -> Self {
+        Self::ServerError(format!("{:?}", e))
     }
 }

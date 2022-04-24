@@ -1,4 +1,3 @@
-use crate::actix_web::FromRequest;
 use crate::error::Error;
 
 pub trait Authorizer {

@@ -8,7 +8,7 @@ use crate::error::Error;
 use crate::handlers::DB;
 use crate::models::OptInsertion;
 use crate::response::{CreateResponse, DeleteResponse};
-use crate::schema::{answers, options, organizations, question_read_marks, questions, users, users_organizations, vote_read_marks, votes};
+use crate::schema::{answers, options, organizations, questions, users, users_organizations, votes};
 use crate::serde::Deserialize;
 use crate::serde::Serialize;
 use crate::{

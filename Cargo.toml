@@ -19,10 +19,11 @@ jsonwebtoken = "*"
 thiserror = "*"
 futures-util = "0.3.19"
 r2d2 = { version = "*" }
-sha2 = "*"
+sha2 = "0.10.2"
 hex = "*"
 rand = "*"
 env_logger = "*"
 actix-multipart = "*"
-futures = "*"
+futures = { version = "*", features=["std", "alloc"] }
 bytes = "1.1.0"
+hex-literal = "*"

@@ -76,6 +76,14 @@ table! {
 }
 
 table! {
+    uploaded_files (id) {
+        id -> Int4,
+        name -> Varchar,
+        fetch_code -> Varchar,
+    }
+}
+
+table! {
     users (id) {
         id -> Int4,
         nickname -> Varchar,
@@ -141,6 +149,7 @@ allow_tables_to_appear_in_same_query!(
     organizations,
     question_read_marks,
     questions,
+    uploaded_files,
     users,
     users_organizations,
     vote_read_marks,

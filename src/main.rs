@@ -11,6 +11,7 @@ extern crate env_logger;
 extern crate futures;
 extern crate futures_util;
 extern crate hex;
+extern crate hex_literal;
 extern crate jsonwebtoken;
 extern crate r2d2;
 extern crate rand;
@@ -30,6 +31,7 @@ pub mod privilege;
 pub mod request;
 pub mod response;
 mod schema;
+mod storer;
 
 use actix_web::web::{delete, get, post, put, resource, scope, Data};
 use actix_web::HttpServer;
@@ -52,7 +54,7 @@ async fn main() -> Result<(), std::io::Error> {
             .app_data(Data::new(PgAuthorizer::new(pool.clone())))
             .service(
                 scope("")
-                    .service(resource("upload").route(post().to(handlers::upload::upload)))
+                    .service(resource("upload").route(post().to(handlers::upload::create)))
                     .service(resource("login").route(post().to(handlers::login)))
                     .service(resource("signup").route(post().to(handlers::signup)))
                     .service(
