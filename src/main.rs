@@ -37,6 +37,7 @@ use actix_web::web::{delete, get, post, put, resource, scope, Data};
 use actix_web::HttpServer;
 use authorizer::PgAuthorizer;
 use diesel::pg::PgConnection;
+use handlers::upload::FileStorer;
 use middleware::jwt::JWT;
 use r2d2::Pool;
 
@@ -52,9 +53,10 @@ async fn main() -> Result<(), std::io::Error> {
             .wrap(actix_web::middleware::Logger::default())
             .app_data(Data::new(pool.clone()))
             .app_data(Data::new(PgAuthorizer::new(pool.clone())))
+            .app_data(Data::new(storer::LocalStorer::new("/tmp/upload")))
             .service(
                 scope("")
-                    .service(resource("upload").route(post().to(handlers::upload::create)))
+                    .service(resource("upload").route(post().to(handlers::upload::create::<storer::LocalStorer>)))
                     .service(resource("login").route(post().to(handlers::login)))
                     .service(resource("signup").route(post().to(handlers::signup)))
                     .service(
