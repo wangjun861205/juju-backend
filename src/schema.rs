@@ -80,6 +80,7 @@ table! {
         id -> Int4,
         name -> Varchar,
         fetch_code -> Varchar,
+        ownner -> Int4,
     }
 }
 
@@ -133,6 +134,7 @@ joinable!(organization_read_marks -> users (user_id));
 joinable!(question_read_marks -> questions (question_id));
 joinable!(question_read_marks -> users (user_id));
 joinable!(questions -> votes (vote_id));
+joinable!(uploaded_files -> users (ownner));
 joinable!(users_organizations -> organizations (organization_id));
 joinable!(users_organizations -> users (user_id));
 joinable!(vote_read_marks -> users (user_id));

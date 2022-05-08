@@ -37,15 +37,18 @@ use actix_web::web::{delete, get, post, put, resource, scope, Data};
 use actix_web::HttpServer;
 use authorizer::PgAuthorizer;
 use diesel::pg::PgConnection;
-use handlers::upload::FileStorer;
 use middleware::jwt::JWT;
 use r2d2::Pool;
+
+#[derive(Debug, Clone)]
+pub struct UploadPath(pub String);
 
 #[actix_web::main]
 async fn main() -> Result<(), std::io::Error> {
     dotenv::dotenv().ok();
     std::env::set_var("RUST_LOG", "actix_web=info");
     env_logger::init();
+    let upload_path = dotenv::var("UPLOAD_PATH").expect("environment variable UPLOAD_PATH not been set");
     let manager = diesel::r2d2::ConnectionManager::<PgConnection>::new(dotenv::var("DATABASE_URL").unwrap());
     let pool = Pool::new(manager).unwrap();
     HttpServer::new(move || {
@@ -53,15 +56,16 @@ async fn main() -> Result<(), std::io::Error> {
             .wrap(actix_web::middleware::Logger::default())
             .app_data(Data::new(pool.clone()))
             .app_data(Data::new(PgAuthorizer::new(pool.clone())))
-            .app_data(Data::new(storer::LocalStorer::new("/tmp/upload")))
+            .app_data(Data::new(storer::LocalStorer::new(&upload_path)))
+            .app_data(Data::new(UploadPath(upload_path.clone())))
             .service(
                 scope("")
-                    .service(resource("upload").route(post().to(handlers::upload::create::<storer::LocalStorer>)))
                     .service(resource("login").route(post().to(handlers::login)))
                     .service(resource("signup").route(post().to(handlers::signup)))
                     .service(
                         scope("")
                             .wrap(JWT {})
+                            .service(scope("upload").route("", post().to(handlers::upload::create::<storer::LocalStorer>)).service(handlers::upload::fetch))
                             .service(
                                 scope("organizations")
                                     .route("", get().to(handlers::organization::list))
