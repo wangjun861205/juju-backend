@@ -33,20 +33,19 @@ pub async fn create<S: FileStorer>(me: UserInfo, mut payload: Multipart, storer:
         block(move || {
             insert_into(uploaded_files::table)
                 .values((uploaded_files::name.eq(name), uploaded_files::fetch_code.eq(fetch_code), uploaded_files::ownner.eq(me.id)))
-                .execute(&conn)
+                .execute(&mut conn)
         })
         .await??;
     }
     Ok(Json(fetch_codes))
 }
 
-#[get("/{fetch_code}")]
 pub async fn fetch(me: UserInfo, fetch_code: Path<String>, db: DB, path: Data<UploadPath>) -> Result<fs::NamedFile, Error> {
     let conn = db.get()?;
     let ok: bool = select(exists(
         uploaded_files::table.filter(uploaded_files::fetch_code.eq(fetch_code.clone()).and(uploaded_files::ownner.eq(me.id))),
     ))
-    .get_result(&conn)?;
+    .get_result(&mut conn)?;
     if !ok {
         return Err(Error::BusinessError(format!("file not exists({})", fetch_code.into_inner())));
     }

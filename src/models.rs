@@ -1,12 +1,8 @@
 use std::{ops::Bound, str::FromStr};
 
 use crate::error::Error;
-use crate::schema::*;
 use chrono::NaiveDate;
-use diesel::{Insertable, Queryable};
 use serde::{Deserialize, Serialize};
-
-use crate::diesel_derive_enum::DbEnum;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum VoteStatus {
@@ -25,7 +21,7 @@ impl FromStr for VoteStatus {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Queryable, Identifiable)]
+#[derive(Debug, Clone)]
 pub struct User {
     pub id: i32,
     pub nickname: String,
@@ -35,8 +31,7 @@ pub struct User {
     pub salt: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Insertable)]
-#[table_name = "users"]
+#[derive(Debug, Clone, Deserialize)]
 pub struct UserInsertion {
     pub nickname: String,
     pub phone: String,
@@ -45,37 +40,32 @@ pub struct UserInsertion {
     pub salt: String,
 }
 
-#[derive(Debug, Clone, Serialize, Queryable, Identifiable)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Organization {
     pub id: i32,
     pub name: String,
     pub version: i64,
 }
 
-#[derive(Debug, Clone, Deserialize, Insertable)]
-#[table_name = "organizations"]
+#[derive(Debug, Clone, Deserialize)]
 pub struct OrganizationInsertion {
     pub name: String,
 }
 
-#[derive(Debug, Clone, Serialize, Queryable, Associations, Identifiable)]
-#[belongs_to(User)]
-#[belongs_to(Organization)]
+#[derive(Debug, Clone, Serialize)]
 pub struct UsersOrganization {
     id: i32,
     user_id: i32,
     organization_id: i32,
 }
 
-#[derive(Debug, Clone, Deserialize, Insertable)]
-#[table_name = "users_organizations"]
+#[derive(Debug, Clone, Deserialize)]
 pub struct UsersOrganizationInsertion {
     pub user_id: i32,
     pub organization_id: i32,
 }
 
-#[derive(Debug, Clone, Serialize, Queryable, Identifiable, Associations)]
-#[belongs_to(Organization)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Vote {
     pub id: i32,
     pub name: String,
@@ -84,30 +74,27 @@ pub struct Vote {
     pub version: i64,
 }
 
-#[derive(Debug, Clone, Deserialize, Insertable)]
-#[table_name = "votes"]
+#[derive(Debug, Clone, Deserialize)]
 pub struct VoteInsertion {
     pub name: String,
     pub deadline: Option<NaiveDate>,
     pub organization_id: i32,
 }
 
-#[derive(Debug, Clone, AsChangeset, Queryable)]
-#[table_name = "votes"]
+#[derive(Debug, Clone)]
 pub struct VoteUpdation {
     pub name: String,
     pub deadline: Option<NaiveDate>,
     pub version: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, DbEnum)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum QuestionType {
     Single,
     Multi,
 }
 
-#[derive(Debug, Clone, Serialize, Queryable, Identifiable, Associations)]
-#[belongs_to(Vote)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Question {
     pub id: i32,
     pub description: String,
@@ -116,8 +103,7 @@ pub struct Question {
     pub version: i64,
 }
 
-#[derive(Debug, Clone, Deserialize, Insertable)]
-#[table_name = "questions"]
+#[derive(Debug, Clone, Deserialize)]
 pub struct QuestionInsertion {
     pub description: String,
     pub vote_id: i32,
@@ -125,40 +111,33 @@ pub struct QuestionInsertion {
     pub version: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Identifiable, Queryable, Associations)]
-#[belongs_to(Question)]
-#[table_name = "options"]
+#[derive(Debug, Clone, Serialize)]
 pub struct Opt {
     id: i32,
     option: String,
     question_id: i32,
 }
 
-#[derive(Debug, Clone, Deserialize, Insertable)]
-#[table_name = "options"]
+#[derive(Debug, Clone, Deserialize)]
 pub struct OptInsertion {
     pub option: String,
     pub question_id: i32,
 }
 
-#[derive(Debug, Clone, Serialize, Identifiable, Queryable, Associations)]
-#[belongs_to(User)]
-#[belongs_to(Opt, foreign_key = "option_id")]
+#[derive(Debug, Clone, Serialize)]
 pub struct Answer {
     id: i32,
     user_id: i32,
     option_id: i32,
 }
 
-#[derive(Debug, Clone, Deserialize, Insertable)]
-#[table_name = "answers"]
+#[derive(Debug, Clone, Deserialize)]
 pub struct AnswerInsertion {
     pub user_id: i32,
     pub option_id: i32,
 }
 
-#[derive(Debug, Clone, Identifiable, Queryable, Associations)]
-#[belongs_to(Vote)]
+#[derive(Debug, Clone)]
 pub struct DateRange {
     pub id: i32,
     pub range_: (Bound<NaiveDate>, Bound<NaiveDate>),
@@ -166,17 +145,14 @@ pub struct DateRange {
     pub user_id: i32,
 }
 
-#[derive(Debug, Clone, Insertable)]
-#[table_name = "date_ranges"]
+#[derive(Debug, Clone)]
 pub struct DateRangeInsertion {
     pub range_: (Bound<NaiveDate>, Bound<NaiveDate>),
     pub vote_id: i32,
     pub user_id: i32,
 }
 
-#[derive(Debug, Clone, Serialize, Identifiable, Queryable, Associations)]
-#[belongs_to(User)]
-#[belongs_to(Vote)]
+#[derive(Debug, Clone)]
 pub struct Date {
     id: i32,
     date_: NaiveDate,
@@ -184,22 +160,20 @@ pub struct Date {
     vote_id: i32,
 }
 
-#[derive(Debug, Clone, Deserialize, Insertable)]
-#[table_name = "dates"]
+#[derive(Debug, Clone, Deserialize)]
 pub struct DateInsertion {
     pub date_: NaiveDate,
     pub user_id: i32,
     pub vote_id: i32,
 }
 
-#[derive(Debug, Clone, Identifiable, Queryable)]
+#[derive(Debug, Clone)]
 pub struct InviteCode {
     id: i32,
     code: String,
 }
 
-#[derive(Debug, Insertable)]
-#[table_name = "vote_read_marks"]
+#[derive(Debug)]
 pub struct VoteReadMarkInsertion {
     pub vote_id: i32,
     pub user_id: i32,

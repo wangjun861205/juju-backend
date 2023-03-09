@@ -1,32 +1,23 @@
-use crate::diesel::{
-    dsl::{exists, select},
-    r2d2::ConnectionManager,
-    BoolExpressionMethods, ExpressionMethods, PgConnection, QueryDsl, RunQueryDsl,
-};
 use crate::error::Error;
 use crate::handlers::authorizer::Authorizer;
-use crate::r2d2::Pool;
-use crate::schema::*;
-
-type ConnectionPool = Pool<ConnectionManager<PgConnection>>;
+use crate::sqlx::{query, query_as, PgPool};
 
 pub struct PgAuthorizer {
-    pool: ConnectionPool,
+    pool: PgPool,
 }
 
 impl PgAuthorizer {
-    pub fn new(pool: ConnectionPool) -> Self {
+    pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 }
 
 impl Authorizer for PgAuthorizer {
-    fn check_organization_read(&self, uid: i32, org_id: i32) -> Result<bool, Error> {
-        let conn = self.pool.get()?;
-        let is_exists = select(exists(
-            users_organizations::table.filter(users_organizations::user_id.eq(uid).and(users_organizations::organization_id.eq(org_id))),
-        ))
-        .get_result(&conn)?;
+    async fn check_organization_read(&self, uid: i32, org_id: i32) -> Result<bool, Error> {
+        let conn = self.pool.acquire().await?;
+        let is_exists: bool = query!("SELECT EXISTS(SELECT * FROM users_organizations WHERE user_id = $1 AND organization_id = $2)", uid, org_id)
+            .execute(conn)
+            .await?;
         Ok(is_exists)
     }
     fn check_organization_write(&self, uid: i32, org_id: i32) -> Result<bool, Error> {

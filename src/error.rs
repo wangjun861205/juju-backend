@@ -5,18 +5,16 @@ use crate::actix_web;
 use crate::actix_web::error::BlockingError;
 use crate::actix_web::http::{header, Error as HTTPError};
 use crate::chrono;
-use crate::diesel::result::Error as DieselError;
 use crate::dotenv::Error as DotError;
 use crate::jsonwebtoken::errors::Error as JsonWebTokenError;
-use crate::r2d2::Error as R2D2Error;
 use crate::thiserror::Error as ThisError;
 use std::io::Error as IOError;
 use std::num;
 
 #[derive(Debug, ThisError)]
 pub enum Error {
-    #[error("database error: {0}")]
-    DatabaseError(#[from] DieselError),
+    #[error("sqlx error")]
+    SqlxError(#[from] sqlx::error::Error),
 
     #[error("http error")]
     ActixError(#[from] actix_web::error::Error),
@@ -26,9 +24,6 @@ pub enum Error {
 
     #[error("jwt error")]
     JWTError(#[from] JsonWebTokenError),
-
-    #[error("r2d2 error")]
-    PoolError(#[from] R2D2Error),
 
     #[error("bussiness error: {0}")]
     BusinessError(String),

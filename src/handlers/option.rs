@@ -80,12 +80,12 @@ pub async fn add_opts(user_info: UserInfo, qst_id: Path<(i32,)>, body: Json<Vec<
         update_(organizations::table)
             .filter(organizations::id.eq(org_id))
             .set(organizations::version.eq(organizations::version.add(1)))
-            .execute(&conn)?;
-        update_(votes::table).filter(votes::id.eq(vote_id)).set(votes::version.eq(votes::version.add(1))).execute(&conn)?;
+            .execute(&mut conn)?;
+        update_(votes::table).filter(votes::id.eq(vote_id)).set(votes::version.eq(votes::version.add(1))).execute(&mut conn)?;
         update_(questions::table)
             .filter(questions::id.eq(qst_id))
             .set(questions::version.eq(questions::version.add(1)))
-            .execute(&conn)?;
+            .execute(&mut conn)?;
         Ok(id)
     })?;
     Ok(Json(CreateResponse { id: id }))
@@ -112,19 +112,19 @@ pub async fn delete(user_info: UserInfo, option_id: Path<(i32,)>, db: DB) -> Res
                     )
                     .and(options::id.eq(option_id)),
             )
-            .execute(&conn)?;
+            .execute(&mut conn)?;
         if deleted == 0 {
             return Err(Error::BusinessError("option not exists".into()));
         }
         update_(organizations::table)
             .filter(organizations::id.eq(oid))
             .set(organizations::version.eq(organizations::version.add(1)))
-            .execute(&conn)?;
-        update_(votes::table).filter(votes::id.eq(vid)).set(votes::version.eq(votes::version.add(1))).execute(&conn)?;
+            .execute(&mut conn)?;
+        update_(votes::table).filter(votes::id.eq(vid)).set(votes::version.eq(votes::version.add(1))).execute(&mut conn)?;
         update_(questions::table)
             .filter(questions::id.eq(qid))
             .set(questions::version.eq(questions::version.add(1)))
-            .execute(&conn)?;
+            .execute(&mut conn)?;
         Ok(deleted)
     })?;
     Ok(Json(DeleteResponse { deleted }))

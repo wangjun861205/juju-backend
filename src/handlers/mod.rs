@@ -49,7 +49,7 @@ fn hash_password(pass: &str, slt: &str) -> String {
 
 pub async fn login(body: Json<Login>, db: Data<Pool<ConnectionManager<PgConnection>>>) -> Result<HttpResponse, Error> {
     let conn = db.get()?;
-    let l = users.filter(phone.eq(&body.0.username)).or_filter(email.eq(&body.0.username)).load::<User>(&conn)?;
+    let l = users.filter(phone.eq(&body.0.username)).or_filter(email.eq(&body.0.username)).load::<User>(&mut conn)?;
     if l.is_empty() {
         return Ok(HttpResponse::build(StatusCode::FORBIDDEN).finish());
     }
@@ -93,7 +93,7 @@ pub async fn signup(Json(req): Json<Signup>, db: Data<Pool<ConnectionManager<PgC
     use crate::schema::invite_codes::dsl::*;
     let conn = db.get()?;
     conn.transaction::<(), Error, _>(|| {
-        let deleted = diesel::delete(invite_codes.filter(code.eq(&req.invite_code))).execute(&conn)?;
+        let deleted = diesel::delete(invite_codes.filter(code.eq(&req.invite_code))).execute(&mut conn)?;
         if deleted == 0 {
             return Err(Error::BusinessError("invalid invite code".into()));
         }

@@ -1,11 +1,11 @@
+#![feature(async_fn_in_trait)]
+
 #[macro_use]
-extern crate diesel;
 extern crate actix_multipart;
 extern crate actix_web;
 extern crate bytes;
 extern crate casbin;
 extern crate chrono;
-extern crate diesel_derive_enum;
 extern crate dotenv;
 extern crate env_logger;
 extern crate futures;
@@ -13,11 +13,11 @@ extern crate futures_util;
 extern crate hex;
 extern crate hex_literal;
 extern crate jsonwebtoken;
-extern crate r2d2;
 extern crate rand;
 extern crate serde;
 extern crate serde_json;
 extern crate sha2;
+extern crate sqlx;
 extern crate thiserror;
 extern crate tokio;
 
@@ -36,9 +36,8 @@ mod storer;
 use actix_web::web::{delete, get, post, put, resource, scope, Data};
 use actix_web::HttpServer;
 use authorizer::PgAuthorizer;
-use diesel::pg::PgConnection;
 use middleware::jwt::JWT;
-use r2d2::Pool;
+use sqlx::postgres::PgPoolOptions;
 
 #[derive(Debug, Clone)]
 pub struct UploadPath(pub String);
@@ -49,8 +48,11 @@ async fn main() -> Result<(), std::io::Error> {
     std::env::set_var("RUST_LOG", "actix_web=info");
     env_logger::init();
     let upload_path = dotenv::var("UPLOAD_PATH").expect("environment variable UPLOAD_PATH not been set");
-    let manager = diesel::r2d2::ConnectionManager::<PgConnection>::new(dotenv::var("DATABASE_URL").unwrap());
-    let pool = Pool::new(manager).unwrap();
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect("postgres://postgres:postgres@localhost/juju")
+        .await
+        .expect("failed to connect to database");
     HttpServer::new(move || {
         actix_web::App::new()
             .wrap(actix_web::middleware::Logger::default())
