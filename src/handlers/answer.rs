@@ -4,24 +4,9 @@ use crate::actix_web::{
     HttpResponse,
 };
 use crate::context::UserInfo;
-use crate::diesel::{
-    dsl::{date, exists, now, sql_query},
-    pg::types::sql_types::Array,
-    select,
-    sql_types::{Bool, Integer},
-    BoolExpressionMethods, Connection, ExpressionMethods, NullableExpressionMethods, QueryDsl, RunQueryDsl,
-};
 use crate::error::Error;
-use crate::handlers::DB;
 use crate::models::{AnswerInsertion, QuestionType};
-use crate::schema::{answers, options, organizations, questions, users, users_organizations, votes};
 use crate::serde::Serialize;
-
-#[derive(Debug, QueryableByName)]
-pub struct AnswerValidResult {
-    #[sql_type = "Bool"]
-    is_valid: bool,
-}
 
 pub async fn submit_answer(user_info: UserInfo, qst_id: Path<(i32,)>, Json(answer): Json<Vec<i32>>, db: DB) -> Result<HttpResponse, Error> {
     let conn = db.get()?;
@@ -77,7 +62,7 @@ pub async fn submit_answer(user_info: UserInfo, qst_id: Path<(i32,)>, Json(answe
     Ok(HttpResponse::build(StatusCode::OK).finish())
 }
 
-#[derive(Debug, Serialize, Queryable)]
+#[derive(Debug, Serialize)]
 pub struct OptionItem {
     id: i32,
     option: String,

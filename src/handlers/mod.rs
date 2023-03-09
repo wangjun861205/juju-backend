@@ -9,7 +9,6 @@ pub mod user;
 pub mod vote;
 
 use actix_web::http::StatusCode;
-use diesel::{Connection, QueryDsl};
 use rand::Rng;
 use std::ops::Add;
 
@@ -19,16 +18,13 @@ use crate::actix_web::{
     HttpResponse,
 };
 
-use crate::diesel::{pg::PgConnection, r2d2::ConnectionManager, ExpressionMethods, RunQueryDsl};
 use crate::dotenv;
 use crate::error::Error;
 use crate::hex::ToHex;
 use crate::jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use crate::middleware::jwt::{Claim, JWT_SECRET, JWT_TOKEN};
 use crate::models::*;
-use crate::r2d2::Pool;
 use crate::rand::thread_rng;
-use crate::schema::users::dsl::*;
 use crate::serde::Deserialize;
 use crate::sha2::{Digest, Sha256};
 
