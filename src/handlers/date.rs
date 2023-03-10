@@ -1,17 +1,17 @@
 use std::ops::Bound;
 
-use diesel::sql_types::{BigInt, Date, Integer};
+use sqlx::postgres::types::PgRange;
+use sqlx::QueryBuilder;
 
 use crate::actix_web::web::{Json, Path, Query};
 use crate::chrono::NaiveDate;
 use crate::context::UserInfo;
-use crate::diesel::{delete, dsl::exists, insert_into, query_dsl::QueryDsl, select, sql_query, BoolExpressionMethods, Connection, ExpressionMethods, RunQueryDsl};
 use crate::error::Error;
 use crate::handlers::DB;
 use crate::models;
 use crate::models::DateRangeInsertion;
-use crate::schema::*;
 use crate::serde::{Deserialize, Serialize};
+use crate::sqlx::{query, query_as};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DateRange {
@@ -39,59 +39,74 @@ fn merge_date_range(mut ranges: Vec<DateRange>) -> Vec<DateRange> {
 pub async fn submit_date_ranges(user_info: UserInfo, vote_id: Path<(i32,)>, Json(mut dates): Json<Vec<DateRange>>, db: DB) -> Result<Json<Vec<DateRange>>, Error> {
     dates = merge_date_range(dates);
     let vote_id = vote_id.into_inner().0;
-    let conn = db.get()?;
-    conn.transaction::<(), Error, _>(|| {
-        let is_valid: bool = select(exists(
-            users::table
-                .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table)))
-                .filter(users::id.eq(user_info.id).and(votes::id.eq(vote_id))),
-        ))
-        .get_result(&conn)?;
-        if !is_valid {
-            return Err(Error::BusinessError("Vote not exists or permission danied".into()));
-        }
-        delete(date_ranges::table.filter(date_ranges::user_id.eq(user_info.id).and(date_ranges::vote_id.eq(vote_id)))).execute(&conn)?;
-        insert_into(date_ranges::table)
-            .values(
-                dates
-                    .iter()
-                    .map(|v| DateRangeInsertion {
-                        range_: (Bound::Included(v.start), Bound::Included(v.end)),
-                        vote_id: vote_id,
-                        user_id: user_info.id,
-                    })
-                    .collect::<Vec<DateRangeInsertion>>(),
-            )
-            .execute(&conn)?;
-        delete(dates::table).filter(dates::vote_id.eq(vote_id).and(dates::user_id.eq(user_info.id))).execute(&conn)?;
-        insert_into(dates::table)
-            .values(
-                dates
-                    .iter()
-                    .map(|r| {
-                        let mut curr = r.start.clone();
-                        let mut ds: Vec<models::DateInsertion> = Vec::new();
-                        while curr < r.end {
-                            ds.push(models::DateInsertion {
-                                date_: curr.clone(),
-                                user_id: user_info.id,
-                                vote_id: vote_id,
-                            });
-                            curr += chrono::Duration::days(1);
-                        }
-                        ds
-                    })
-                    .flatten()
-                    .collect::<Vec<models::DateInsertion>>(),
-            )
-            .execute(&conn)?;
-        Ok(())
-    })?;
+    let mut tx = db.begin()?;
+    let (is_valid,): (bool,) = query_as(
+        r#"
+    SELECT EXISTS(
+        SELECT * 
+        FROM users AS u
+        JOIN users_organizations AS uo ON u.id = uo.user_id
+        JOIN organizations AS o ON uo.organization_id = o.id
+        JOIN votes AS v ON o.id = votes.organization_id
+        WHERE u.id = $1 AND v.id = $2)"#,
+    )
+    .bind(user_info.id)
+    .bind(vote_id)
+    .fetch_one(&mut tx)
+    .await?;
+    if !is_valid {
+        return Err(Error::BusinessError("Vote not exists or permission danied".into()));
+    }
+    query("DELETE date_ranges WHERE user_id = $1 AND vote_id = $2")
+        .bind(user_info.id)
+        .bind(vote_id)
+        .execute(&mut tx)
+        .await?;
+    QueryBuilder::new("INSERT INTO date_ranges (range, vote_id, user_id)")
+        .push_values(dates.iter(), |mut b, d| {
+            b.push_bind(PgRange {
+                start: Bound::Included(d.start),
+                end: Bound::Included(d.end),
+            });
+            b.push_bind(vote_id);
+            b.push_bind(user_info.id);
+        })
+        .build()
+        .execute(&mut tx)
+        .await?;
+    query("DELETE dates WHERE vote_id = $1 AND user_id = $2").bind(vote_id).bind(user_info.id).execute(&mut tx).await?;
+    QueryBuilder::new("INSERT INTO dates (date, user_id, vote_id)")
+        .push_tuples(dates.iter(), |mut b, d| {
+            b.push_bind(PgRange {
+                start: Bound::Included(d.start),
+                end: Bound::Included(d.end),
+            });
+            b.push_bind(user_info.id);
+            b.push_bind(vote_id);
+        })
+        .build()
+        .execute(&mut tx)
+        .await?;
     Ok(Json(dates))
 }
 
 pub async fn date_range_list(user_info: UserInfo, vote_id: Path<(i32,)>, db: DB) -> Result<Json<Vec<DateRange>>, Error> {
     let vote_id = vote_id.into_inner().0;
+    let ranges: Vec<models::DateRange> = query_as(
+        r#"
+    SELECT dr.* 
+    FROM users AS u
+    JOIN users_organizations AS uo ON u.id = uo.user_id
+    JOIN organizations AS o ON uo.organization_id = o.id
+    JOIN votes AS v ON o.id = v.organization_id
+    JOIN date_ranges AS dr ON v.id = dr.vote_id
+    WHERE u.id = $1 AND v.id = $2 AND dr.user_id = $1"#,
+    )
+    .bind(user_info.id)
+    .bind(vote_id)
+    .fetch_all(&mut db.acquire().await?)
+    .await?;
+
     let ranges = users::table
         .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table.inner_join(date_ranges::table))))
         .filter(users::id.eq(user_info.id).and(votes::id.eq(vote_id)).and(date_ranges::user_id.eq(user_info.id)))

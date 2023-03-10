@@ -1,8 +1,10 @@
 use std::{ops::Bound, str::FromStr};
 
 use crate::error::Error;
+use crate::sqlx::FromRow;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
+use sqlx::postgres::types::PgRange;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum VoteStatus {
@@ -88,6 +90,9 @@ pub struct VoteUpdation {
     pub version: i64,
 }
 
+#[derive(sqlx::Type)]
+#[sqlx(type_name = "question_type")]
+#[sqlx(rename_all = "UPPERCASE")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum QuestionType {
     Single,
@@ -137,10 +142,10 @@ pub struct AnswerInsertion {
     pub option_id: i32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, FromRow)]
 pub struct DateRange {
     pub id: i32,
-    pub range_: (Bound<NaiveDate>, Bound<NaiveDate>),
+    pub range_: PgRange<NaiveDate>,
     pub vote_id: i32,
     pub user_id: i32,
 }
