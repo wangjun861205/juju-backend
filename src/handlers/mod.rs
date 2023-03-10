@@ -10,6 +10,7 @@ pub mod vote;
 
 use actix_web::http::StatusCode;
 use rand::Rng;
+use sqlx::{query, query_as, PgPool};
 use std::ops::Add;
 
 use crate::actix_web::{
@@ -28,8 +29,6 @@ use crate::rand::thread_rng;
 use crate::serde::Deserialize;
 use crate::sha2::{Digest, Sha256};
 
-type DB = Data<Pool<ConnectionManager<PgConnection>>>;
-
 #[derive(Deserialize)]
 pub struct Login {
     pub username: String,
@@ -43,17 +42,14 @@ fn hash_password(pass: &str, slt: &str) -> String {
     hasher.finalize().encode_hex()
 }
 
-pub async fn login(body: Json<Login>, db: Data<Pool<ConnectionManager<PgConnection>>>) -> Result<HttpResponse, Error> {
-    let conn = db.get()?;
-    let l = users.filter(phone.eq(&body.0.username)).or_filter(email.eq(&body.0.username)).load::<User>(&mut conn)?;
-    if l.is_empty() {
-        return Ok(HttpResponse::build(StatusCode::FORBIDDEN).finish());
-    }
-    if hash_password(&body.0.password, &l[0].salt) != l[0].password {
+pub async fn login(Json(Login { username, password }): Json<Login>, db: Data<PgPool>) -> Result<HttpResponse, Error> {
+    let mut conn = db.acquire().await?;
+    let user: User = query_as(r#"SELECT * FROM users WHERE phone = $1 OR email = $1"#).bind(&username).fetch_one(&mut conn).await?;
+    if hash_password(&password, &user.salt) != user.password {
         return Ok(HttpResponse::build(StatusCode::FORBIDDEN).finish());
     }
     let claim = Claim {
-        uid: l[0].id,
+        uid: user.id,
         exp: chrono::Utc::now().add(chrono::Duration::days(30)).timestamp() as usize,
     };
     let secret = dotenv::var(JWT_SECRET)?;
@@ -85,24 +81,30 @@ pub struct Signup {
     invite_code: String,
 }
 
-pub async fn signup(Json(req): Json<Signup>, db: Data<Pool<ConnectionManager<PgConnection>>>) -> Result<HttpResponse, Error> {
-    use crate::schema::invite_codes::dsl::*;
-    let conn = db.get()?;
-    conn.transaction::<(), Error, _>(|| {
-        let deleted = diesel::delete(invite_codes.filter(code.eq(&req.invite_code))).execute(&mut conn)?;
-        if deleted == 0 {
-            return Err(Error::BusinessError("invalid invite code".into()));
-        }
-        let slt = random_salt();
-        let insertion = crate::models::UserInsertion {
-            nickname: req.nickname,
-            phone: req.phone,
-            email: req.email,
-            password: hash_password(&req.password, &slt),
-            salt: slt,
-        };
-        diesel::insert_into(users).values(insertion).execute(&conn)?;
-        Ok(())
-    })?;
+pub async fn signup(
+    Json(Signup {
+        nickname,
+        phone,
+        email,
+        password,
+        invite_code,
+    }): Json<Signup>,
+    db: Data<PgPool>,
+) -> Result<HttpResponse, Error> {
+    let mut tx = db.begin().await?;
+    let (deleted,): (i64,) = query_as("DELETE FROM invite_codes WHERE code = $1").bind(invite_code).fetch_one(&mut tx).await?;
+    if deleted == 0 {
+        return Err(Error::BusinessError("invalid invite code".into()));
+    }
+    let slt = random_salt();
+    query("INSERT INTO users (nickname, phone, email, password, salt) VALUES ($1, $2, $3, $4, $5)")
+        .bind(nickname)
+        .bind(phone)
+        .bind(email)
+        .bind(hash_password(&password, &slt))
+        .bind(slt)
+        .execute(&mut tx)
+        .await?;
+    tx.commit().await?;
     Ok(HttpResponse::build(StatusCode::OK).finish())
 }

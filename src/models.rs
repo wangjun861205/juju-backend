@@ -4,7 +4,7 @@ use crate::error::Error;
 use crate::sqlx::FromRow;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::types::PgRange;
+use sqlx::{postgres::types::PgRange, Encode};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum VoteStatus {
@@ -23,7 +23,7 @@ impl FromStr for VoteStatus {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, FromRow)]
 pub struct User {
     pub id: i32,
     pub nickname: String,

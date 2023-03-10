@@ -14,11 +14,11 @@ impl<T> List<T> {
 
 #[derive(Debug, Serialize)]
 pub struct DeleteResponse {
-    pub deleted: usize,
+    pub deleted: i32,
 }
 
 impl DeleteResponse {
-    pub fn new(deleted: usize) -> Self {
+    pub fn new(deleted: i32) -> Self {
         DeleteResponse { deleted }
     }
 }

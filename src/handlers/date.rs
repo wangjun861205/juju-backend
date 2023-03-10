@@ -1,17 +1,15 @@
 use std::ops::Bound;
 
 use sqlx::postgres::types::PgRange;
-use sqlx::QueryBuilder;
+use sqlx::{PgPool, QueryBuilder};
 
 use crate::actix_web::web::{Json, Path, Query};
 use crate::chrono::NaiveDate;
 use crate::context::UserInfo;
 use crate::error::Error;
-use crate::handlers::DB;
-use crate::models;
-use crate::models::DateRangeInsertion;
 use crate::serde::{Deserialize, Serialize};
-use crate::sqlx::{query, query_as};
+use crate::sqlx::{query, query_as, FromRow};
+use actix_web::web::Data;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DateRange {
@@ -36,10 +34,10 @@ fn merge_date_range(mut ranges: Vec<DateRange>) -> Vec<DateRange> {
     result
 }
 
-pub async fn submit_date_ranges(user_info: UserInfo, vote_id: Path<(i32,)>, Json(mut dates): Json<Vec<DateRange>>, db: DB) -> Result<Json<Vec<DateRange>>, Error> {
+pub async fn submit_date_ranges(user_info: UserInfo, vote_id: Path<(i32,)>, Json(mut dates): Json<Vec<DateRange>>, db: Data<PgPool>) -> Result<Json<Vec<DateRange>>, Error> {
     dates = merge_date_range(dates);
     let vote_id = vote_id.into_inner().0;
-    let mut tx = db.begin()?;
+    let mut tx = db.begin().await?;
     let (is_valid,): (bool,) = query_as(
         r#"
     SELECT EXISTS(
@@ -90,11 +88,11 @@ pub async fn submit_date_ranges(user_info: UserInfo, vote_id: Path<(i32,)>, Json
     Ok(Json(dates))
 }
 
-pub async fn date_range_list(user_info: UserInfo, vote_id: Path<(i32,)>, db: DB) -> Result<Json<Vec<DateRange>>, Error> {
+pub async fn date_range_list(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<Vec<PgRange<NaiveDate>>>, Error> {
     let vote_id = vote_id.into_inner().0;
-    let ranges: Vec<models::DateRange> = query_as(
+    let ranges: Vec<(PgRange<NaiveDate>,)> = query_as(
         r#"
-    SELECT dr.* 
+    SELECT dr.range 
     FROM users AS u
     JOIN users_organizations AS uo ON u.id = uo.user_id
     JOIN organizations AS o ON uo.organization_id = o.id
@@ -107,23 +105,7 @@ pub async fn date_range_list(user_info: UserInfo, vote_id: Path<(i32,)>, db: DB)
     .fetch_all(&mut db.acquire().await?)
     .await?;
 
-    let ranges = users::table
-        .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table.inner_join(date_ranges::table))))
-        .filter(users::id.eq(user_info.id).and(votes::id.eq(vote_id)).and(date_ranges::user_id.eq(user_info.id)))
-        .select(date_ranges::all_columns)
-        .load::<models::DateRange>(&db.get()?)?;
-    let res: Vec<DateRange> = ranges
-        .into_iter()
-        .map(|r| {
-            if let Bound::Included(start) = r.range_.0 {
-                if let Bound::Excluded(end) = r.range_.1 {
-                    return DateRange { start: start, end: end };
-                }
-            }
-            unreachable!()
-        })
-        .collect();
-    Ok(Json(res))
+    Ok(Json(ranges.into_iter().map(|r| r.0).collect()))
 }
 
 const YEAR_STAT: &str = r#"
@@ -201,30 +183,33 @@ pub struct MonthReportParam {
     pub month: i32,
 }
 
-#[derive(Debug, Clone, Serialize, QueryableByName)]
+#[derive(Debug, Clone, Serialize, FromRow)]
 pub struct MonthReportItem {
-    #[sql_type = "Date"]
     date_: NaiveDate,
-    #[sql_type = "Integer"]
     rate: i32,
 }
 
-pub async fn month_report(user_info: UserInfo, vote_id: Path<(i32,)>, Query(param): Query<MonthReportParam>, db: DB) -> Result<Json<Vec<MonthReportItem>>, Error> {
+pub async fn month_report(user_info: UserInfo, vote_id: Path<(i32,)>, Query(param): Query<MonthReportParam>, db: Data<PgPool>) -> Result<Json<Vec<MonthReportItem>>, Error> {
     let vote_id = vote_id.into_inner().0;
-    let is_valid: bool = select(exists(
-        users::table
-            .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table)))
-            .filter(users::id.eq(user_info.id).and(votes::id.eq(vote_id))),
-    ))
-    .get_result(&db.get()?)?;
+    let mut conn = db.acquire().await?;
+    let (is_valid,): (bool,) = query_as(
+        r#"
+    SELECT EXISTS(
+        SELECT *
+        FROM users AS u
+        JOIN users_organizations AS uo ON u.id = uo.user_id
+        JOIN organizations AS o ON uo.organization_id = o.id
+        JOIN votes AS v ON o.id = v.organization_id
+        WHERE u.id = $1 AND v.id = $2)"#,
+    )
+    .bind(user_info.id)
+    .bind(vote_id)
+    .fetch_one(&mut conn)
+    .await?;
     if !is_valid {
         return Err(Error::BusinessError("vote does not exists or permission deny".into()));
     }
-    let result = sql_query(MONTH_STAT)
-        .bind::<Integer, i32>(vote_id)
-        .bind::<Integer, i32>(param.year)
-        .bind::<Integer, i32>(param.month)
-        .get_results::<MonthReportItem>(&db.get()?)?;
+    let result = query_as(MONTH_STAT).bind(vote_id).bind(param.year).bind(param.month).fetch_all(&mut conn).await?;
     Ok(Json(result))
 }
 
@@ -233,34 +218,37 @@ pub struct YearReportParam {
     year: i32,
 }
 
-#[derive(Debug, Serialize, QueryableByName)]
+#[derive(Debug, Serialize, FromRow)]
 pub struct YearReportItem {
-    #[sql_type = "Integer"]
     month: i32,
-    #[sql_type = "BigInt"]
     u25_count: i64,
-    #[sql_type = "BigInt"]
     u50_count: i64,
-    #[sql_type = "BigInt"]
     u75_count: i64,
-    #[sql_type = "BigInt"]
     u100_count: i64,
-    #[sql_type = "BigInt"]
     p100_count: i64,
 }
 
-pub async fn year_report(user_info: UserInfo, vote_id: Path<(i32,)>, Query(param): Query<YearReportParam>, db: DB) -> Result<Json<Vec<YearReportItem>>, Error> {
+pub async fn year_report(user_info: UserInfo, vote_id: Path<(i32,)>, Query(param): Query<YearReportParam>, db: Data<PgPool>) -> Result<Json<Vec<YearReportItem>>, Error> {
     let vote_id = vote_id.into_inner().0;
-    let is_valid: bool = select(exists(
-        users::table
-            .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table)))
-            .filter(users::id.eq(user_info.id).and(votes::id.eq(vote_id))),
-    ))
-    .get_result::<bool>(&db.get()?)?;
+    let mut conn = db.acquire().await?;
+    let (is_valid,): (bool,) = query_as(
+        r#"
+    SELECT EXISTS(
+        SELECT *
+        FROM users AS u
+        JOIN users_organizations AS uo ON u.id = uo.user_id
+        JOIN organizations AS o ON uo.organization_id = o.id
+        JOIN votes AS v ON o.id = v.organization_id
+        WHERE u.id = $1 AND v.id = $2)"#,
+    )
+    .bind(user_info.id)
+    .bind(vote_id)
+    .fetch_one(&mut conn)
+    .await?;
     if !is_valid {
         return Err(Error::BusinessError("vote does not exists or permission deny".into()));
     }
-    Ok(Json(sql_query(YEAR_STAT).bind::<Integer, _>(vote_id).bind::<Integer, _>(param.year).load(&db.get()?)?))
+    Ok(Json(query_as(YEAR_STAT).bind(vote_id).bind(param.year).fetch_all(&mut conn).await?))
 }
 
 #[derive(Debug, Clone, Serialize)]

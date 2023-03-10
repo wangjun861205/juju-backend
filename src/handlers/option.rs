@@ -1,23 +1,20 @@
+use actix_web::HttpResponse;
+use sqlx::{query, query_as, QueryBuilder};
+
 use crate::context::UserInfo;
-use crate::diesel::{
-    dsl::{delete as delete_, insert_into, sql, update as update_},
-    sql_types::Bool,
-    BoolExpressionMethods, Connection, ExpressionMethods, QueryDsl, RunQueryDsl,
-};
 use crate::error::Error;
-use crate::handlers::DB;
 use crate::models::OptInsertion;
 use crate::response::{CreateResponse, DeleteResponse};
-use crate::schema::{answers, options, organizations, questions, users, users_organizations, votes};
 use crate::serde::Deserialize;
 use crate::serde::Serialize;
+use crate::sqlx::{FromRow, PgPool};
 use crate::{
-    actix_web::web::{Json, Path},
+    actix_web::web::{Data, Json, Path},
     models::QuestionType,
 };
 use std::ops::Add;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, FromRow)]
 pub struct Item {
     id: i32,
     option: String,
@@ -30,32 +27,39 @@ pub struct ListResponse {
     items: Vec<Item>,
 }
 
-pub async fn list(user_info: UserInfo, qst_id: Path<(i32,)>, db: DB) -> Result<Json<ListResponse>, Error> {
+pub async fn list(user_info: UserInfo, qst_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<ListResponse>, Error> {
     let qst_id = qst_id.into_inner().0;
-    let conn = db.get()?;
-    let res = conn.transaction::<ListResponse, Error, _>(|| {
-        let question_type: QuestionType = users::table
-            .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table.inner_join(questions::table))))
-            .select(questions::type_)
-            .filter(users::id.eq(user_info.id).and(questions::id.eq(qst_id)))
-            .get_result(&conn)?;
-        let items: Vec<(i32, String, bool)> = users::table
-            .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table.inner_join(questions::table.inner_join(options::table.left_join(answers::table))))))
-            .select((options::id, options::option, sql::<Bool>("answers.id IS NOT NULL")))
-            .filter(
-                users::id
-                    .eq(user_info.id)
-                    .and(questions::id.eq(qst_id))
-                    .and(answers::user_id.is_null().or(answers::user_id.eq(user_info.id))),
-            )
-            .order_by(options::id)
-            .load(&conn)?;
-        Ok(ListResponse {
-            question_type: question_type,
-            items: items.into_iter().map(|(id, option, checked)| Item { id, option, checked }).collect(),
-        })
-    })?;
-    Ok(Json(res))
+    let mut conn = db.acquire().await?;
+    let (question_type,): (QuestionType,) = query_as(
+        r#"
+        SELECT q.type
+        FROM users AS u
+        JOIN users_organizations AS uo ON u.id = uo.user_id
+        JOIN organizations AS o ON uo.organization_id = o.id
+        JOIN votes AS v ON o.id = v.organization_id
+        WHERE u.id = $1 AND q.id = $2"#,
+    )
+    .bind(user_info.id)
+    .bind(qst_id)
+    .fetch_one(&mut conn)
+    .await?;
+    let items: Vec<Item> = query_as(
+        r#"
+        SELECT op.id, op.option, a.id IS NOT NULL
+        FROM users AS u
+        JOIN users_organizations AS uo on u.id = uo.user_id
+        JOIN organizations AS og ON uo.organization_id = og.id
+        JOIN votes AS v ON o.id = v.organization_id
+        JOIN questions AS q ON v.id = q.vote_id
+        JOIN options AS op ON q.id = o.question_id
+        LEFT JOIN answers AS a ON op.id = a.option_id AND u.id = a.user_id
+        WHERE u.id = $1 AND q.id = $2"#,
+    )
+    .bind(user_info.id)
+    .bind(qst_id)
+    .fetch_all(&mut conn)
+    .await?;
+    Ok(Json(ListResponse { question_type, items }))
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -63,69 +67,111 @@ pub struct OptAdd {
     pub option: String,
 }
 
-pub async fn add_opts(user_info: UserInfo, qst_id: Path<(i32,)>, body: Json<Vec<String>>, db: DB) -> Result<Json<CreateResponse>, Error> {
+pub async fn add_opts(user_info: UserInfo, qst_id: Path<(i32,)>, Json(options): Json<Vec<String>>, db: Data<PgPool>) -> Result<HttpResponse, Error> {
     let qst_id = qst_id.into_inner().0;
-    let conn = db.get()?;
-    let id = conn.transaction::<_, Error, _>(|| {
-        let (org_id, vote_id): (i32, i32) = users::table
-            .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table.inner_join(questions::table))))
-            .filter(users::id.eq(user_info.id).and(questions::id.eq(qst_id)))
-            .select((organizations::id, votes::id))
-            .for_update()
-            .first(&conn)?;
-        let id = insert_into(options::table)
-            .values::<Vec<OptInsertion>>(body.0.into_iter().map(|o| OptInsertion { question_id: qst_id, option: o }).collect())
-            .returning(options::id)
-            .get_result::<i32>(&conn)?;
-        update_(organizations::table)
-            .filter(organizations::id.eq(org_id))
-            .set(organizations::version.eq(organizations::version.add(1)))
-            .execute(&mut conn)?;
-        update_(votes::table).filter(votes::id.eq(vote_id)).set(votes::version.eq(votes::version.add(1))).execute(&mut conn)?;
-        update_(questions::table)
-            .filter(questions::id.eq(qst_id))
-            .set(questions::version.eq(questions::version.add(1)))
-            .execute(&mut conn)?;
-        Ok(id)
-    })?;
-    Ok(Json(CreateResponse { id: id }))
+    let mut tx = db.begin().await?;
+    let (org_id, vote_id): (i32, i32) = query_as(
+        r#"
+        SELECT o.id, v.id
+        FROM users AS u
+        JOIN users_organizations AS uo ON u.id = uo.user_id
+        JOIN organizations AS o ON uo.organization_id = o.id
+        JOIN votes AS v ON o.id = v.organization_id
+        JOIN questions AS q ON v.id = q.vote_id
+        WHERE u.id = $1 AND q.id = $2
+        FOR UPDATE"#,
+    )
+    .bind(user_info.id)
+    .bind(qst_id)
+    .fetch_one(&mut tx)
+    .await?;
+
+    QueryBuilder::new("INSERT INTO options (question_id, option)")
+        .push_tuples(options.into_iter(), |mut b, o| {
+            b.push_bind(qst_id);
+            b.push_bind(o);
+        })
+        .push("RETURNING id")
+        .build()
+        .execute(&mut tx)
+        .await?;
+
+    query(
+        r#"
+        UPDATE organizations 
+        SET version = version + 1
+        WHERE id = $1"#,
+    )
+    .bind(org_id)
+    .execute(&mut tx)
+    .await?;
+
+    query(
+        r#"
+        UPDATE votes
+        SET version = version + 1
+        WHERE id = $1"#,
+    )
+    .bind(vote_id)
+    .execute(&mut tx)
+    .await?;
+
+    query(
+        r#"
+        UPDATE questions
+        SET version = version + 1
+        WHERE id = $1"#,
+    )
+    .bind(qst_id)
+    .execute(&mut tx)
+    .await?;
+    tx.commit().await?;
+    Ok(HttpResponse::Ok().finish())
 }
 
-pub async fn delete(user_info: UserInfo, option_id: Path<(i32,)>, db: DB) -> Result<Json<DeleteResponse>, Error> {
+pub async fn delete(user_info: UserInfo, option_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<DeleteResponse>, Error> {
     let option_id = option_id.into_inner().0;
-    let conn = db.get()?;
-    let deleted = conn.transaction::<_, Error, _>(|| {
-        let (oid, vid, qid): (i32, i32, i32) = organizations::table
-            .inner_join(votes::table.inner_join(questions::table.inner_join(options::table)))
-            .filter(options::id.eq(option_id))
-            .select((organizations::id, votes::id, options::id))
-            .for_update()
-            .first(&conn)?;
-        let deleted = delete_(options::table)
-            .filter(
-                options::id
-                    .eq_any(
-                        users::table
-                            .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table.inner_join(questions::table.inner_join(options::table)))))
-                            .filter(users::id.eq(user_info.id))
-                            .select(options::id),
-                    )
-                    .and(options::id.eq(option_id)),
-            )
-            .execute(&mut conn)?;
-        if deleted == 0 {
-            return Err(Error::BusinessError("option not exists".into()));
-        }
-        update_(organizations::table)
-            .filter(organizations::id.eq(oid))
-            .set(organizations::version.eq(organizations::version.add(1)))
-            .execute(&mut conn)?;
-        update_(votes::table).filter(votes::id.eq(vid)).set(votes::version.eq(votes::version.add(1))).execute(&mut conn)?;
-        update_(questions::table)
-            .filter(questions::id.eq(qid))
-            .set(questions::version.eq(questions::version.add(1)))
-            .execute(&mut conn)?;
-        Ok(deleted)
-    })?;
+    let mut tx = db.begin().await?;
+    let (oid, vid, qid): (i32, i32, i32) = query_as(
+        r#"
+        SELECT o.id, v.id, q.id
+        FROM organizations AS o
+        JOIN votes AS v ON o.id = v.organization_id
+        JOIN questions AS q ON v.id = q.vote_id
+        JOIN options AS op ON q.id = op.question_id
+        WHERE op.id = $1
+        FOR UPDATE"#,
+    )
+    .bind(option_id)
+    .fetch_one(&mut tx)
+    .await?;
+
+    let (deleted,): (i32,) = query_as(
+        r#"
+        DELETE 
+        FROM options
+        WHERE id IN (
+            SELECT o.id
+            FROM users AS u
+            JOIN users_organizations AS uo ON u.id = uo.user_id
+            JOIN organizations AS o ON uo.organization_id = o.id
+            JOIN votes AS v ON o.id = v.organization_id
+            JOIN questions AS q ON v.id = q.vote_id
+            JOIN options AS op ON q.id = op.question_id
+            WHERE u.id = $1
+            AND op.id = $2)"#,
+    )
+    .bind(user_info.id)
+    .bind(option_id)
+    .fetch_one(&mut tx)
+    .await?;
+
+    if deleted == 0 {
+        return Err(Error::BusinessError("option not exists".into()));
+    }
+
+    query("UPDATE organizations SET version = version + 1 WHERE id = $1").bind(oid).execute(&mut tx).await?;
+    query("UPDATE votes SET version = version + 1 WHERE id = $1").bind(vid).execute(&mut tx).await?;
+    query("UPDATE questions SET version = version + 1 WHERE id = $1").bind(qid).execute(&mut tx).await?;
     Ok(Json(DeleteResponse { deleted }))
 }
