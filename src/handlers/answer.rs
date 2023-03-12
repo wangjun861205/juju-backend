@@ -1,6 +1,6 @@
 use crate::actix_web::{
     http::StatusCode,
-    web::{Json, Path},
+    web::{Data, Json, Path},
     HttpResponse,
 };
 use crate::context::UserInfo;
@@ -9,7 +9,7 @@ use crate::models::{AnswerInsertion, QuestionType};
 use crate::serde::Serialize;
 use crate::sqlx::{query, query_as, FromRow, PgPool, QueryBuilder};
 
-pub async fn submit_answer(user_info: UserInfo, qst_id: Path<(i32,)>, Json(answer): Json<Vec<i32>>, db: PgPool) -> Result<HttpResponse, Error> {
+pub async fn submit_answer(user_info: UserInfo, qst_id: Path<(i32,)>, Json(answer): Json<Vec<i32>>, db: Data<PgPool>) -> Result<HttpResponse, Error> {
     let mut tx = db.begin().await?;
     let qst_id = qst_id.into_inner().0;
     let (is_vote_valid,): (bool,) = query_as(
@@ -86,7 +86,7 @@ pub struct AnswerList {
     answers: Vec<i32>,
 }
 
-pub async fn answer_list(user_info: UserInfo, qst_id: Path<(i32,)>, db: PgPool) -> Result<Json<AnswerList>, Error> {
+pub async fn answer_list(user_info: UserInfo, qst_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<AnswerList>, Error> {
     let mut tx = db.begin().await?;
     let qst_id = qst_id.into_inner().0;
     let (question_type,): (QuestionType,) = query_as(

@@ -1,16 +1,13 @@
-use diesel::pg::Pg;
-use diesel::Connection;
+use actix_web::web::Data;
+use sqlx::{query_as, FromRow, PgPool, QueryBuilder};
 
 use crate::actix_web::web::{Json, Query};
 use crate::context::UserInfo;
-use crate::diesel::{BoolExpressionMethods, ExpressionMethods, QueryDsl, RunQueryDsl, TextExpressionMethods};
 use crate::error::Error;
-use crate::handlers::DB;
 use crate::response::List;
-use crate::schema::*;
 use crate::serde::{Deserialize, Serialize};
 
-#[derive(Debug, Queryable, Serialize)]
+#[derive(Debug, Serialize, FromRow)]
 pub struct User {
     id: i32,
     nickname: String,
@@ -24,34 +21,58 @@ pub struct FindUserParams {
     size: i64,
 }
 
-pub async fn find(Query(FindUserParams { phone, exclude_org_id, page, size }): Query<FindUserParams>, db: DB) -> Result<Json<List<User>>, Error> {
-    let conn = db.get()?;
+pub async fn find(Query(FindUserParams { phone, exclude_org_id, page, size }): Query<FindUserParams>, db: Data<PgPool>) -> Result<Json<List<User>>, Error> {
+    let mut conn = db.acquire().await?;
     let total: i64;
     let list: Vec<User>;
     if let Some(org_id) = exclude_org_id {
-        total = users::table
-            .left_join(users_organizations::table.left_join(organizations::table))
-            .filter(users::phone.like(format!("%{phone}%")).and(organizations::id.ne(org_id).or(organizations::id.is_null())))
-            .select(users::id)
-            .distinct()
-            .count()
-            .get_result(&conn)?;
-        list = users::table
-            .left_join(users_organizations::table.left_join(organizations::table))
-            .filter(users::phone.like(format!("%{phone}%")).and(organizations::id.ne(org_id).or(organizations::id.is_null())))
-            .select((users::id, users::nickname))
-            .distinct()
-            .limit(size)
-            .offset((page - 1) * size)
-            .load(&conn)?;
+        (total,) = query_as(
+            "
+        SELECT COUNT(DISTINCT u.id)
+        FROM users AS u
+        LEFT JOIN users_organizations AS uo ON u.id = uo.user_id
+        LEFT JOIN organizations AS o ON uo.organization_id = o.id
+        WHERE u.phone LIKE '%$1%'
+        AND (o.id <> $2 OR o.id IS NULL)",
+        )
+        .bind(&phone)
+        .bind(org_id)
+        .fetch_one(&mut conn)
+        .await?;
+        list = query_as(
+            "
+        SELECT DISTINCT u.id, u.nickname
+        FROM users AS u
+        LEFT JOIN users_organizations AS uo ON u.id = uo.user_id
+        LEFT JOIN organizations AS o ON uo.organization_id = o.id
+        WHERE u.phone LIKE '%$1%'
+        AND (o.id <> $2 OR o.id IS NULL)
+        LIMIT $3
+        OFFSET $4",
+        )
+        .bind(&phone)
+        .bind(org_id)
+        .bind(size)
+        .bind((page - 1) * size)
+        .fetch_all(&mut conn)
+        .await?;
     } else {
-        total = users::table.filter(users::phone.like(format!("%{phone}%"))).count().get_result(&conn)?;
-        list = users::table
-            .filter(users::phone.like(format!("%{phone}%")))
-            .select((users::id, users::nickname))
-            .limit(size)
-            .offset((page - 1) * size)
-            .load(&db.get()?)?;
+        (total,) = query_as(
+            "
+        SELECT COUNT(*) FROM users WHERE phone LIKE '%$1%'",
+        )
+        .bind(&phone)
+        .fetch_one(&mut conn)
+        .await?;
+        list = query_as(
+            "
+        SELECT id, nickname FROM users WHERE phone LIKE '%$1%' LIMIT $2 OFFSET $3",
+        )
+        .bind(&phone)
+        .bind(size)
+        .bind((page - 1) * size)
+        .fetch_all(&mut conn)
+        .await?;
     }
     Ok(Json(List::new(list, total)))
 }
@@ -74,43 +95,55 @@ pub async fn list(
         page,
         size,
     }): Query<ListParams>,
-    db: DB,
+    db: Data<PgPool>,
 ) -> Result<Json<List<User>>, Error> {
-    let conn = db.get()?;
-    let table = users::table.inner_join(users_organizations::table.inner_join(organizations::table));
-    let mut count = table.clone().into_boxed();
+    let mut conn = db.acquire().await?;
+    let mut total_query = QueryBuilder::new(
+        "
+    SELECT COUNT(*)
+    FROM users AS u
+    JOIN users_organizations AS uo ON u.id = uo.user_id
+    JOIN organizations AS o ON uo.organization_id = o.id 
+    WHERE 1 = 1 ",
+    );
     if let Some(phone) = &phone {
-        count = count.filter(users::phone.like(format!("%{phone}%")));
+        total_query.push("AND u.phone LIKE '%");
+        total_query.push_bind(phone);
+        total_query.push("%'");
     }
     if let Some(org_id) = org_id {
-        count = count.filter(organizations::id.eq(org_id));
+        total_query.push("AND o.id = ");
+        total_query.push(org_id);
     }
     if let Some(exclude_org_id) = exclude_org_id {
-        count = count.filter(organizations::id.ne(exclude_org_id));
+        total_query.push("AND o.id <> ");
+        total_query.push_bind(exclude_org_id);
     }
-    let mut query = table.clone().select((users::id, users::nickname)).limit(size).offset((page - 1) * size).into_boxed::<Pg>();
+    let (total,): (i64,) = total_query.build_query_as().fetch_one(&mut conn).await?;
+    let mut list_query = QueryBuilder::new(
+        "SELECT u.id, u.nickname
+    FROM users AS u
+    JOIN users_organizations AS uo ON u.id = uo.user_id
+    JOIN organizations AS o ON uo.organization_id = o.id 
+    WHERE 1 = 1",
+    );
     if let Some(phone) = &phone {
-        query = query.filter(users::phone.like(format!("%{phone}%")));
+        list_query.push(" AND u.phone LIKE '%");
+        list_query.push_bind(phone);
+        list_query.push("%'");
     }
     if let Some(org_id) = org_id {
-        query = query.filter(organizations::id.eq(org_id));
+        list_query.push(" AND o.id = ");
+        list_query.push(org_id);
     }
     if let Some(exclude_org_id) = exclude_org_id {
-        query = query.filter(organizations::id.ne(exclude_org_id));
+        list_query.push(" AND o.id <> ");
+        list_query.push_bind(exclude_org_id);
     }
-    let (users, total) = conn.transaction::<(Vec<User>, i64), Error, _>(|| {
-        if phone.is_none() {
-            let user_org_ids: Vec<i32> = users_organizations::table
-                .filter(users_organizations::user_id.eq(me.id))
-                .select(users_organizations::organization_id)
-                .load(&conn)?;
-            count = count.filter(organizations::id.eq_any(user_org_ids.clone()));
-            query = query.filter(organizations::id.eq_any(user_org_ids.clone()));
-        }
-        let total = count.count().get_result(&conn)?;
-        let users = query.load(&conn)?;
-        Ok((users, total))
-    })?;
-
+    list_query.push(" LIMIT ");
+    list_query.push_bind(size);
+    list_query.push(" OFFSET ");
+    list_query.push_bind((page - 1) * size);
+    let users: Vec<User> = list_query.build_query_as().fetch_all(&mut conn).await?;
     Ok(Json(List::new(users, total)))
 }

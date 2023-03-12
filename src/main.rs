@@ -30,7 +30,6 @@ pub mod models;
 pub mod privilege;
 pub mod request;
 pub mod response;
-mod schema;
 mod storer;
 
 use actix_web::web::{delete, get, post, put, resource, scope, Data};

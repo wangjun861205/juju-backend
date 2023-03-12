@@ -4,7 +4,8 @@ use crate::error::Error;
 use crate::sqlx::FromRow;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
-use sqlx::{postgres::types::PgRange, Encode};
+use sqlx::{postgres::types::PgRange, PgPool, Pool};
+use sqlx_insert::{table_name, Insertable};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum VoteStatus {
@@ -33,16 +34,17 @@ pub struct User {
     pub salt: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Insertable)]
+#[table_name(users)]
 pub struct UserInsertion {
     pub nickname: String,
-    pub phone: String,
     pub email: String,
+    pub phone: String,
     pub password: String,
     pub salt: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, FromRow)]
 pub struct Organization {
     pub id: i32,
     pub name: String,
@@ -67,7 +69,7 @@ pub struct UsersOrganizationInsertion {
     pub organization_id: i32,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, FromRow)]
 pub struct Vote {
     pub id: i32,
     pub name: String,
@@ -99,7 +101,7 @@ pub enum QuestionType {
     Multi,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, FromRow)]
 pub struct Question {
     pub id: i32,
     pub description: String,
@@ -116,14 +118,15 @@ pub struct QuestionInsertion {
     pub version: i64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, FromRow)]
 pub struct Opt {
     id: i32,
     option: String,
     question_id: i32,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Insertable)]
+#[table_name(options)]
 pub struct OptInsertion {
     pub option: String,
     pub question_id: i32,
@@ -157,7 +160,7 @@ pub struct DateRangeInsertion {
     pub user_id: i32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Date {
     id: i32,
     date_: NaiveDate,

@@ -30,3 +30,4 @@ sqlx = { version = "0.6.2", features = [
 	"postgres",
 	"runtime-tokio-native-tls",
 ] }
+sqlx-insert = { version = "*", path = "../sqlx-insert" }

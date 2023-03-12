@@ -1,21 +1,14 @@
-use crate::actix_web::web::{Json, Path, Query};
+use sqlx::{query, query_as, FromRow, QueryBuilder};
+
+use crate::actix_web::web::{Data, Json, Path, Query};
 use crate::chrono::{DateTime, NaiveDate, Utc};
 use crate::context::UserInfo;
-use crate::diesel::{
-    delete,
-    dsl::{exists, sql, sql_query, update as update_},
-    insert_into, select,
-    sql_types::*,
-    BoolExpressionMethods, Connection, ExpressionMethods, GroupByDsl, QueryDsl, RunQueryDsl,
-};
 use crate::error::Error;
-use crate::handlers::DB;
 use crate::models::{Date, Question, Vote, VoteInsertion, VoteReadMarkInsertion, VoteStatus};
 use crate::request::Pagination;
 use crate::response::{CreateResponse, DeleteResponse, List, UpdateResponse};
-use crate::schema::{organizations, question_read_marks, questions, users, users_organizations, vote_read_marks, votes};
 use crate::serde::{Deserialize, Serialize};
-use std::ops::Add;
+use crate::sqlx::PgPool;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Creation {
@@ -23,48 +16,59 @@ pub struct Creation {
     deadline: Option<DateTime<Utc>>,
 }
 
-pub async fn create(user_info: UserInfo, org_id: Path<(i32,)>, Json(body): Json<Creation>, db: DB) -> Result<Json<CreateResponse>, Error> {
+pub async fn create(user_info: UserInfo, org_id: Path<(i32,)>, Json(body): Json<Creation>, db: Data<PgPool>) -> Result<Json<CreateResponse>, Error> {
     let org_id = org_id.into_inner().0;
-    let conn = db.get()?;
-    let id = conn.transaction::<_, Error, _>(|| {
-        let exists = select(exists(
-            users_organizations::table
-                .filter(users_organizations::user_id.eq(user_info.id))
-                .inner_join(organizations::table)
-                .filter(organizations::id.eq(org_id)),
-        ))
-        .get_result::<bool>(&conn)?;
-        if !exists {
-            return Err(Error::BusinessError("irrelative organization".into()));
-        }
-        let vote_id = insert_into(votes::table)
-            .values(VoteInsertion {
-                name: body.name,
-                deadline: if let Some(dl) = body.deadline { Some(dl.naive_utc().date()) } else { None },
-                organization_id: org_id,
-            })
-            .returning(votes::id)
-            .get_result::<i32>(&conn)?;
-        let user_ids: Vec<i32> = users::table
-            .inner_join(users_organizations::table.inner_join(organizations::table))
-            .filter(organizations::id.eq(org_id))
-            .select(users::id)
-            .load(&conn)?;
-        insert_into(vote_read_marks::table)
-            .values(
-                user_ids
-                    .into_iter()
-                    .map(|id| VoteReadMarkInsertion {
-                        user_id: id,
-                        vote_id: vote_id as i32,
-                        version: 0,
-                    })
-                    .collect::<Vec<VoteReadMarkInsertion>>(),
-            )
-            .execute(&conn)?;
-        Ok(vote_id)
-    })?;
-    return Ok(Json(CreateResponse { id: id }));
+    let mut tx = db.begin().await?;
+    let (exists,): (bool,) = query_as(
+        "
+    SELECT EXISTS(
+        SELECT *
+        FROM users AS u
+        JOIN users_organizations AS uo ON u.id = uo.user_id
+        JOIN organizations AS o ON uo.organization_id = o.id
+        WHERE u.id = $1
+        AND o.id = $2)",
+    )
+    .bind(user_info.id)
+    .bind(org_id)
+    .fetch_one(&mut tx)
+    .await?;
+    if !exists {
+        return Err(Error::BusinessError("irrelative organization".into()));
+    }
+
+    let (vote_id,): (i32,) = query_as("INSERT INTO votes (name, deadline, organization_id) VALUES ($1, $2, $3) RETURNING id")
+        .bind(body.name)
+        .bind(if let Some(dl) = body.deadline { Some(dl.naive_utc().date()) } else { None })
+        .bind(org_id)
+        .fetch_one(&mut tx)
+        .await?;
+    let user_ids: Vec<i32> = query_as(
+        "
+    SELECT u.id
+    FROM users AS u
+    JOIN users_organizations AS uo ON u.id = uo.user_id
+    JOIN organizations AS o ON uo.organization_id = o.id
+    WHERE o.id = $1",
+    )
+    .bind(org_id)
+    .fetch_all(&mut tx)
+    .await?
+    .into_iter()
+    .map(|v: (i32,)| v.0)
+    .collect();
+
+    QueryBuilder::new("INSERT INTO vote_read_marks (user_id, vote_id, version) ")
+        .push_values(user_ids.into_iter(), |mut b, v| {
+            b.push_bind(v);
+            b.push_bind(vote_id);
+            b.push_bind(0);
+        })
+        .build()
+        .execute(&mut tx)
+        .await?;
+    tx.commit().await?;
+    return Ok(Json(CreateResponse { id: vote_id }));
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -73,29 +77,31 @@ pub struct VoteUpdation {
     deadline: Option<NaiveDate>,
 }
 
-pub async fn update(user_info: UserInfo, vote_id: Path<(i32,)>, Json(VoteUpdation { name, deadline }): Json<VoteUpdation>, db: DB) -> Result<Json<UpdateResponse>, Error> {
+pub async fn update(user_info: UserInfo, vote_id: Path<(i32,)>, Json(VoteUpdation { name, deadline }): Json<VoteUpdation>, db: Data<PgPool>) -> Result<Json<UpdateResponse>, Error> {
     let vote_id = vote_id.into_inner().0;
-    let conn = db.get()?;
-    let updated: usize = conn.transaction::<_, Error, _>(|| {
-        let updated = update_(votes::table)
-            .filter(
-                votes::id.eq(vote_id).and(
-                    votes::id.eq_any(
-                        users::table
-                            .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table)))
-                            .filter(users::id.eq(user_info.id))
-                            .select(votes::id),
-                    ),
-                ),
-            )
-            .set((votes::name.eq(name), votes::deadline.eq(deadline), votes::version.eq(votes::version.add(1))))
-            .execute(&conn)?;
-        Ok(updated)
-    })?;
-    Ok(Json(UpdateResponse { updated }))
+    let mut conn = db.acquire().await?;
+    let (updated,): (i32,) = query_as(
+        "UPDATE votes
+    SET name = $1, deadline = $2, version = version + 1
+    WHERE id = $3
+    AND id IN (
+        SELECT v.id
+        FROM users AS u
+        JOIN users_organizations AS uo ON u.id = uo.user_id
+        JOIN organizations AS o ON uo.organization_id = o.id
+        JOIN votes AS v ON o.id = v.organization_id
+        WHERE u.id = $4)",
+    )
+    .bind(name)
+    .bind(deadline)
+    .bind(vote_id)
+    .bind(user_info.id)
+    .fetch_one(&mut conn)
+    .await?;
+    Ok(Json(UpdateResponse { updated: updated as usize }))
 }
 
-#[derive(Debug, Serialize, Queryable)]
+#[derive(Debug, Serialize, FromRow)]
 pub struct Item {
     id: i32,
     name: String,
@@ -112,41 +118,44 @@ struct VoteDetail {
     questions: Vec<Question>,
 }
 
-pub async fn list(user_info: UserInfo, param: Query<Pagination>, org_id: Path<(i32,)>, db: DB) -> Result<Json<List<Item>>, Error> {
+pub async fn list(user_info: UserInfo, param: Query<Pagination>, org_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<List<Item>>, Error> {
     let org_id = org_id.into_inner().0;
-    let conn = db.get()?;
-    let (votes, total) = conn.transaction::<(Vec<Item>, i64), Error, _>(|| {
-        let total: i64 = users::table
-            .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table)))
-            .filter(users::id.eq(user_info.id).and(organizations::id.eq(org_id)))
-            .count()
-            .get_result(&conn)?;
-        let votes: Vec<Item> = users::table
-            .inner_join(
-                users_organizations::table
-                    .inner_join(organizations::table.inner_join(votes::table.inner_join(vote_read_marks::table).left_join(questions::table.left_join(question_read_marks::table)))),
-            )
-            .select((
-                votes::id,
-                votes::name,
-                votes::deadline,
-                votes::version,
-                sql::<Text>("CASE WHEN votes.deadline < DATE(NOW()) THEN 'Closed' ELSE 'Collecting' END"),
-                sql::<Bool>("SUM(votes.version) > SUM(vote_read_marks.version) OR SUM(questions.version) > SUM(question_read_marks.version)"),
-            ))
-            .filter(
-                users::id
-                    .eq(user_info.id)
-                    .and(organizations::id.eq(org_id))
-                    .and(vote_read_marks::user_id.eq(user_info.id))
-                    .and(question_read_marks::user_id.eq(user_info.id).or(question_read_marks::user_id.is_null())),
-            )
-            .group_by((votes::id, votes::name, votes::deadline, votes::version))
-            .offset((param.page - 1) * param.size)
-            .limit(param.size)
-            .load::<Item>(&conn)?;
-        Ok((votes, total))
-    })?;
+    let mut tx = db.begin().await?;
+    let (total,): (i64,) = query_as(
+        "
+    SELECT COUNT(*)
+    FROM users AS u
+    JOIN users_organizations AS uo ON u.id = uo.user_id
+    JOIN organizations AS o ON uo.organization_id = o.id
+    JOIN votes AS v ON o.id = v.organization_id
+    WHERE u.id = $1
+    AND o.id = $2",
+    )
+    .bind(user_info.id)
+    .bind(org_id)
+    .fetch_one(&mut tx)
+    .await?;
+    let votes: Vec<Item> = query_as(
+        "
+    SELECT v.id, v.name, v.deadline, v.version
+    FROM users AS u
+    JOIN users_organizations AS uo ON u.id = uo.user_id
+    JOIN organizations AS o ON uo.organization_id = o.id
+    JOIN votes AS v ON o.id = v.organization_id
+    JOIN vote_read_marks AS vrm ON v.id = vrm.vote_id AND u.id = vrm.user_id
+    LEFT JOIN questions AS q ON v.id = q.vote_id
+    LEFT JOIN question_read_marks AS qrm ON q.id = qrm.question_id AND u.id = qrm.user_id
+    WHERE u.id = $1
+    AND o.id = $2
+    LIMIT $3
+    OFFSET $4",
+    )
+    .bind(user_info.id)
+    .bind(org_id)
+    .bind(param.size)
+    .bind((param.page - 1) * param.size)
+    .fetch_all(&mut tx)
+    .await?;
     Ok(Json(List::new(votes, total)))
 }
 
@@ -158,22 +167,33 @@ pub struct Detail {
     status: VoteStatus,
 }
 
-pub async fn detail(user_info: UserInfo, vote_id: Path<(i32,)>, db: DB) -> Result<Json<Detail>, Error> {
+pub async fn detail(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<Detail>, Error> {
     let vote_id = vote_id.into_inner().0;
-    let conn = db.get()?;
-    let vote = conn.transaction::<_, Error, _>(|| {
-        let vote: Vote = users::table
-            .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table)))
-            .filter(users::dsl::id.eq(user_info.id).and(votes::dsl::id.eq(vote_id)))
-            .select(votes::all_columns)
-            .for_share()
-            .get_result(&conn)?;
-        update_(vote_read_marks::table)
-            .filter(vote_read_marks::user_id.eq(user_info.id).and(vote_read_marks::vote_id.eq(vote_id)))
-            .set(vote_read_marks::version.eq(vote.version))
-            .execute(&conn)?;
-        Ok(vote)
-    })?;
+    let mut tx = db.begin().await?;
+    let vote: Vote = query_as(
+        "
+    SELECT v.*
+    FROM users AS u
+    JOIN users_organizations AS uo ON u.id = uo.user_id
+    JOIN organizations AS o ON uo.organization_id = o.id
+    JOIN votes AS v ON o.id = v.organization_id
+    WHERE u.id = $1
+    AND v.id = $2
+    FOR SHARE",
+    )
+    .bind(user_info.id)
+    .bind(vote_id)
+    .fetch_one(&mut tx)
+    .await?;
+    query(
+        "
+    UPDATE vote_read_marks SET version = $1 WHERE user_id = $2 AND vote_id = $3",
+    )
+    .bind(vote.version)
+    .bind(user_info.id)
+    .bind(vote_id)
+    .execute(&mut tx)
+    .await?;
     Ok(Json(Detail {
         id: vote.id,
         name: vote.name,
@@ -190,11 +210,9 @@ pub async fn detail(user_info: UserInfo, vote_id: Path<(i32,)>, db: DB) -> Resul
     }))
 }
 
-#[derive(Debug, Clone, Serialize, QueryableByName)]
+#[derive(Debug, Clone, Serialize, FromRow)]
 pub struct OptionReport {
-    #[sql_type = "Text"]
     option: String,
-    #[sql_type = "Integer"]
     percentage: i32,
 }
 
@@ -204,10 +222,11 @@ pub struct QuestionReport {
     options: Vec<OptionReport>,
 }
 
-fn gen_question_report(question_id: i32, db: &DB) -> Result<QuestionReport, Error> {
-    let conn = &db.get()?;
-    let question = questions::table.find(question_id).get_result::<Question>(conn)?;
-    let stmt = r#"
+async fn gen_question_report(question_id: i32, db: &Data<PgPool>) -> Result<QuestionReport, Error> {
+    let mut conn = db.acquire().await?;
+    let question: Question = query_as("SELECT * FROM questions WHERE id = $1").bind(question_id).fetch_one(&mut conn).await?;
+    let opts = query_as(
+        r#"
     select o.option as option, (count(distinct a.id)::float / (count(distinct uo.user_id))::float * 10000)::int as percentage
     from users_organizations as uo
     join organizations as org on uo.organization_id = org.id
@@ -216,38 +235,59 @@ fn gen_question_report(question_id: i32, db: &DB) -> Result<QuestionReport, Erro
     join options as o on q.id = o.question_id
     left join answers as a on o.id = a.option_id
     where q.id = $1
-    group by option"#;
-    let opts = sql_query(stmt).bind::<Integer, _>(question_id).load::<OptionReport>(conn)?;
+    group by option"#,
+    )
+    .bind(question_id)
+    .fetch_all(&mut conn)
+    .await?;
     Ok(QuestionReport {
         question: question.description,
         options: opts,
     })
 }
 
-pub async fn question_reports(user_info: UserInfo, vote_id: Path<(i32,)>, db: DB) -> Result<Json<Vec<QuestionReport>>, Error> {
+pub async fn question_reports(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<Vec<QuestionReport>>, Error> {
     let vote_id = vote_id.into_inner().0;
-    let qids: Vec<i32> = users::table
-        .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table.inner_join(questions::table))))
-        .filter(users::id.eq(user_info.id).and(votes::id.eq(vote_id)))
-        .select(questions::id)
-        .load(&db.get()?)?;
-    let resports: Vec<QuestionReport> = qids.into_iter().map(|id| gen_question_report(id, &db)).collect::<Result<Vec<QuestionReport>, Error>>()?;
-    Ok(Json(resports))
+    let qids: Vec<(i32,)> = query_as(
+        "
+    SELECT q.id
+    FROM users AS u
+    JOIN users_organizations AS uo ON u.id = uo.user_id
+    JOIN organizations AS o ON uo.organization_id = o.id
+    JOIN votes AS v ON o.id = v.organization_id
+    JOIN questions AS q ON v.id = q.vote_id
+    WHERE u.id = $1
+    AND v.id = $2",
+    )
+    .bind(user_info.id)
+    .bind(vote_id)
+    .fetch_all(&mut db.acquire().await?)
+    .await?;
+    let mut reports = Vec::new();
+    for (id,) in qids {
+        reports.push(gen_question_report(id, &db).await?)
+    }
+
+    Ok(Json(reports))
 }
 
-pub async fn delete_vote(user_info: UserInfo, vote_id: Path<(i32,)>, db: DB) -> Result<Json<DeleteResponse>, Error> {
+pub async fn delete_vote(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<DeleteResponse>, Error> {
     let vote_id = vote_id.into_inner().0;
-    let deleted: usize = delete(votes::table)
-        .filter(
-            votes::id
-                .eq_any(
-                    users::table
-                        .inner_join(users_organizations::table.inner_join(organizations::table.inner_join(votes::table)))
-                        .filter(users::id.eq(user_info.id))
-                        .select(votes::id),
-                )
-                .and(votes::id.eq(vote_id)),
-        )
-        .execute(&db.get()?)?;
+    let (deleted,): (i32,) = query_as(
+        "
+    DELETE 
+    FROM votes 
+    WHERE id IN (
+        SELECT v.id 
+        FROM users AS u 
+        JOIN users_organizations AS uo ON u.id = uo.user_id 
+        JOIN organizations AS o ON uo.organization_id = o.id 
+        JOIN votes AS v ON o.id = v.organization_id 
+        WHERE u.id = $1 AND v.id = $2)",
+    )
+    .bind(user_info.id)
+    .bind(vote_id)
+    .fetch_one(&mut db.acquire().await?)
+    .await?;
     Ok(Json(DeleteResponse::new(deleted)))
 }
