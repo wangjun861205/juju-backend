@@ -5,7 +5,7 @@ use crate::actix_web::{
 };
 use crate::context::UserInfo;
 use crate::error::Error;
-use crate::models::{AnswerInsertion, QuestionType};
+use crate::models::QuestionType;
 use crate::serde::Serialize;
 use crate::sqlx::{query, query_as, FromRow, PgPool, QueryBuilder};
 

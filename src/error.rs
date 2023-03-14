@@ -13,7 +13,7 @@ use std::num;
 
 #[derive(Debug, ThisError)]
 pub enum Error {
-    #[error("sqlx error")]
+    #[error("sqlx error: {0}")]
     SqlxError(#[from] sqlx::error::Error),
 
     #[error("http error")]

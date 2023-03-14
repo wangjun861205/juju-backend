@@ -1,9 +1,8 @@
 use std::fs::File;
 
-use crate::bytes::{buf::Reader, Buf, Bytes, BytesMut};
+use crate::bytes::Bytes;
 use crate::handlers::upload::FileStorer;
 use crate::sha2::{Digest, Sha256};
-use std::io::Cursor;
 use std::io::{Read, Write};
 use std::path::Path;
 use std::str;

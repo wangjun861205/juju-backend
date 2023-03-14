@@ -4,7 +4,7 @@ use crate::actix_web::web::{Data, Json, Path, Query};
 use crate::chrono::{DateTime, NaiveDate, Utc};
 use crate::context::UserInfo;
 use crate::error::Error;
-use crate::models::{Date, Question, Vote, VoteInsertion, VoteReadMarkInsertion, VoteStatus};
+use crate::models::{Date, Question, Vote, VoteStatus};
 use crate::request::Pagination;
 use crate::response::{CreateResponse, DeleteResponse, List, UpdateResponse};
 use crate::serde::{Deserialize, Serialize};
@@ -137,7 +137,13 @@ pub async fn list(user_info: UserInfo, param: Query<Pagination>, org_id: Path<(i
     .await?;
     let votes: Vec<Item> = query_as(
         "
-    SELECT v.id, v.name, v.deadline, v.version
+    SELECT 
+        v.id, 
+        v.name, 
+        v.deadline, 
+        v.version,
+        CASE WHEN v.deadline <= NOW() THEN 'Active' ELSE 'Expired' END AS status,
+        SUM(v.version) > SUM(vrm.version) OR SUM(COALESCE(q.version, 0)) > SUM(COALESCE(qrm.version, 0)) AS has_updated
     FROM users AS u
     JOIN users_organizations AS uo ON u.id = uo.user_id
     JOIN organizations AS o ON uo.organization_id = o.id
@@ -147,6 +153,7 @@ pub async fn list(user_info: UserInfo, param: Query<Pagination>, org_id: Path<(i
     LEFT JOIN question_read_marks AS qrm ON q.id = qrm.question_id AND u.id = qrm.user_id
     WHERE u.id = $1
     AND o.id = $2
+    GROUP BY v.id, v.name, v.deadline, v.version, status
     LIMIT $3
     OFFSET $4",
     )

@@ -88,7 +88,7 @@ pub async fn submit_date_ranges(user_info: UserInfo, vote_id: Path<(i32,)>, Json
     Ok(Json(dates))
 }
 
-pub async fn date_range_list(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<Vec<PgRange<NaiveDate>>>, Error> {
+pub async fn date_range_list(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<Vec<DateRange>>, Error> {
     let vote_id = vote_id.into_inner().0;
     let ranges: Vec<(PgRange<NaiveDate>,)> = query_as(
         r#"
@@ -105,7 +105,23 @@ pub async fn date_range_list(user_info: UserInfo, vote_id: Path<(i32,)>, db: Dat
     .fetch_all(&mut db.acquire().await?)
     .await?;
 
-    Ok(Json(ranges.into_iter().map(|r| r.0).collect()))
+    Ok(Json(
+        ranges
+            .into_iter()
+            .map(|r| DateRange {
+                start: match r.0.start {
+                    Bound::Included(r) => r,
+                    Bound::Excluded(r) => r,
+                    _ => unreachable!(),
+                },
+                end: match r.0.end {
+                    Bound::Included(r) => r,
+                    Bound::Excluded(r) => r,
+                    _ => unreachable!(),
+                },
+            })
+            .collect(),
+    ))
 }
 
 const YEAR_STAT: &str = r#"

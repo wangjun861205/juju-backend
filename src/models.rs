@@ -4,7 +4,7 @@ use crate::error::Error;
 use crate::sqlx::FromRow;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
-use sqlx::{postgres::types::PgRange, PgPool, Pool};
+use sqlx::postgres::types::PgRange;
 use sqlx_insert::{table_name, Insertable};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

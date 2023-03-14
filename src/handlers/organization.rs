@@ -89,22 +89,27 @@ pub async fn list(user_info: UserInfo, Query(Pagination { page, size }): Query<P
     .await?;
     let orgs = query_as(
         "
-        SELECT o.id, o.name, o.version, COUNT(DISTINCT v.id) AS vote_count, SUM(o.version) > SUM(orm.version) OR SUM(v.version) > SUM(vrm.version) OR SUM(q.version) > SUM(qrm.version) AS has_new_vote
+        SELECT 
+            o.id, 
+            o.name, 
+            o.version, 
+            COUNT(DISTINCT v.id) AS vote_count, 
+            SUM(o.version) > SUM(orm.version) OR SUM(COALESCE(v.version, 0)) > SUM(COALESCE(vrm.version, 0)) OR SUM(COALESCE(q.version, 0)) > SUM(COALESCE(qrm.version, 0)) AS has_new_vote
         FROM users AS u
         JOIN users_organizations AS uo ON u.id = uo.user_id
-        JOIN organizations AS uo.organization_id = o.id
+        JOIN organizations AS o ON uo.organization_id = o.id
         JOIN organization_read_marks AS orm ON o.id = orm.organization_id
         LEFT JOIN votes AS v ON o.id = v.organization_id
         LEFT JOIN vote_read_marks AS vrm ON v.id = vrm.vote_id
         LEFT JOIN questions AS q ON v.id = q.vote_id
-        LEFT JOIN question_read_mark AS qrm ON q.id = qrm.question_id
+        LEFT JOIN question_read_marks AS qrm ON q.id = qrm.question_id
         WHERE u.id = $1
         AND orm.user_id = $1
         AND (vrm.user_id = $1 OR vrm.user_id IS NULL)
         AND (qrm.user_id = $1 OR qrm.user_id IS NULL)
         GROUP BY o.id, o.name, o.version
         LIMIT $2
-        OFFET $3",
+        OFFSET $3",
     )
     .bind(user_info.id)
     .bind(size)

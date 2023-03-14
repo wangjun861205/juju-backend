@@ -1,6 +1,5 @@
 #![feature(async_fn_in_trait)]
 
-#[macro_use]
 extern crate actix_multipart;
 extern crate actix_web;
 extern crate bytes;
@@ -66,7 +65,11 @@ async fn main() -> Result<(), std::io::Error> {
                     .service(
                         scope("")
                             .wrap(JWT {})
-                            .service(scope("upload").route("", post().to(handlers::upload::create::<storer::LocalStorer>)).service(handlers::upload::fetch))
+                            .service(
+                                scope("upload")
+                                    .route("", post().to(handlers::upload::create::<storer::LocalStorer>))
+                                    .route("", get().to(handlers::upload::fetch)),
+                            )
                             .service(
                                 scope("organizations")
                                     .route("", get().to(handlers::organization::list))
@@ -114,7 +117,7 @@ async fn main() -> Result<(), std::io::Error> {
                                         .route("", get().to(handlers::question::detail))
                                         .route("", delete().to(handlers::question::delete))
                                         .service(scope("options").route("", post().to(handlers::option::add_opts)).route("", get().to(handlers::option::list)))
-                                        .service(scope("answers").route("", get().to(handlers::answer::answer_list)).route("", put().to(handlers::answer::submit_answer))), // .service(scope("report").route("", get().to(handlers::question::gen_question_report))),
+                                        .service(scope("answers").route("", get().to(handlers::answer::answer_list)).route("", put().to(handlers::answer::submit_answer))),
                                 ),
                             )
                             .service(scope("users").route("", get().to(handlers::user::list))),

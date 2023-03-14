@@ -3,8 +3,7 @@ use sqlx::{query, query_as, QueryBuilder};
 
 use crate::context::UserInfo;
 use crate::error::Error;
-use crate::models::OptInsertion;
-use crate::response::{CreateResponse, DeleteResponse};
+use crate::response::DeleteResponse;
 use crate::serde::Deserialize;
 use crate::serde::Serialize;
 use crate::sqlx::{FromRow, PgPool};
@@ -12,7 +11,6 @@ use crate::{
     actix_web::web::{Data, Json, Path},
     models::QuestionType,
 };
-use std::ops::Add;
 
 #[derive(Debug, Serialize, FromRow)]
 pub struct Item {

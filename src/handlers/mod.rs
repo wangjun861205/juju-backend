@@ -44,18 +44,24 @@ fn hash_password(pass: &str, slt: &str) -> String {
 
 pub async fn login(Json(Login { username, password }): Json<Login>, db: Data<PgPool>) -> Result<HttpResponse, Error> {
     let mut conn = db.acquire().await?;
-    let user: User = query_as(r#"SELECT * FROM users WHERE phone = $1 OR email = $1"#).bind(&username).fetch_one(&mut conn).await?;
-    if hash_password(&password, &user.salt) != user.password {
-        return Ok(HttpResponse::build(StatusCode::FORBIDDEN).finish());
-    }
-    let claim = Claim {
-        uid: user.id,
-        exp: chrono::Utc::now().add(chrono::Duration::days(30)).timestamp() as usize,
-    };
-    let secret = dotenv::var(JWT_SECRET)?;
-    let token = encode(&Header::new(Algorithm::HS256), &claim, &EncodingKey::from_secret(secret.as_bytes()))?;
+    if let Some(user) = query_as::<_, User>(r#"SELECT * FROM users WHERE phone = $1 OR email = $1"#)
+        .bind(&username)
+        .fetch_optional(&mut conn)
+        .await?
+    {
+        if hash_password(&password, &user.salt) != user.password {
+            return Ok(HttpResponse::build(StatusCode::FORBIDDEN).finish());
+        }
+        let claim = Claim {
+            uid: user.id,
+            exp: chrono::Utc::now().add(chrono::Duration::days(30)).timestamp() as usize,
+        };
+        let secret = dotenv::var(JWT_SECRET)?;
+        let token = encode(&Header::new(Algorithm::HS256), &claim, &EncodingKey::from_secret(secret.as_bytes()))?;
 
-    Ok(HttpResponse::build(StatusCode::OK).cookie(Cookie::new(JWT_TOKEN, token)).finish())
+        return Ok(HttpResponse::build(StatusCode::OK).cookie(Cookie::new(JWT_TOKEN, token)).finish());
+    }
+    Err(Error::BusinessError("invalid username or password".into()))
 }
 
 fn random_salt() -> String {
