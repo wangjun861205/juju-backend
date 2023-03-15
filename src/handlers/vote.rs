@@ -206,7 +206,7 @@ pub async fn detail(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<PgPool>
         name: vote.name,
         deadline: vote.deadline.clone(),
         status: if let Some(dl) = &vote.deadline {
-            if dl < &Utc::today().naive_utc() {
+            if dl < &Utc::now().date_naive() {
                 VoteStatus::Closed
             } else {
                 VoteStatus::Collecting

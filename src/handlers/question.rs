@@ -62,8 +62,9 @@ pub async fn create(
         .fetch_one(&mut tx)
         .await?;
     for opt in options {
-        OptInsertion { question_id: id, option: opt }.sqlx_insert(&mut tx).await?;
+        OptInsertion { question_id: id, option: opt }.insert(&mut tx).await?;
     }
+
     query("INSERT INTO question_read_marks (question_id, user_id, version) VALUES ($1, $2, 1)")
         .bind(id)
         .bind(user_info.id)

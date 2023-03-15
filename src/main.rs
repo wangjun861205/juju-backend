@@ -17,6 +17,7 @@ extern crate serde;
 extern crate serde_json;
 extern crate sha2;
 extern crate sqlx;
+extern crate sqlx_insert;
 extern crate thiserror;
 extern crate tokio;
 

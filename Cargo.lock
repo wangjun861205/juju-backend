@@ -2129,6 +2129,7 @@ dependencies = [
 [[package]]
 name = "sqlx-insert"
 version = "0.1.0"
+source = "git+https://github.com/wangjun861205/sqlx-insert#a1181c5375dedd678dde44aed8e5ad2bea279444"
 dependencies = [
  "proc-macro2",
  "quote",
