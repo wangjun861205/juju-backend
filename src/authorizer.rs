@@ -1,7 +1,13 @@
+use std::task::Poll;
+
+use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
+use futures::future::{ready, LocalBoxFuture, Ready};
+
 use crate::error::Error;
 use crate::handlers::authorizer::Authorizer;
 use crate::sqlx::{query_as, PgPool};
 
+#[derive(Debug, Clone)]
 pub struct PgAuthorizer {
     pool: PgPool,
 }
@@ -108,5 +114,45 @@ impl Authorizer for PgAuthorizer {
         .fetch_one(&mut conn)
         .await?;
         Ok(is_exists)
+    }
+}
+
+pub struct PgAuthMiddleware<S> {
+    authorizer: PgAuthorizer,
+    service: S,
+}
+
+impl<S, B> Transform<S, ServiceRequest> for PgAuthorizer
+where
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = actix_web::Error>,
+    S::Future: 'static,
+    B: 'static,
+{
+    type Response = ServiceResponse<B>;
+    type Error = actix_web::Error;
+    type InitError = ();
+    type Transform = PgAuthMiddleware<S>;
+    type Future = Ready<Result<PgAuthMiddleware<S>, ()>>;
+    fn new_transform(&self, service: S) -> Self::Future {
+        ready(Ok(PgAuthMiddleware { authorizer: self.clone(), service }))
+    }
+}
+
+impl<S, B> Service<ServiceRequest> for PgAuthMiddleware<S>
+where
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = actix_web::Error>,
+    S::Future: 'static,
+    B: 'static,
+{
+    type Response = ServiceResponse<B>;
+    type Error = actix_web::Error;
+    type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
+    fn call(&self, req: ServiceRequest) -> Self::Future {
+        let fut = self.service.call(req);
+        Box::pin(async move { Ok(fut.await?) })
+    }
+
+    fn poll_ready(&self, ctx: &mut core::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
     }
 }

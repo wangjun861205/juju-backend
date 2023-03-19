@@ -46,7 +46,7 @@ pub async fn create(
             JOIN organizations AS o ON uo.organization_id = o.id
             JOIN votes AS v ON o.id = v.organization_id
             WHERE uo.user_id = $1
-            AND v.id = $2",
+            AND v.id = $2)",
     )
     .bind(user_info.id)
     .bind(vote_id)
@@ -62,7 +62,7 @@ pub async fn create(
         .fetch_one(&mut tx)
         .await?;
     for opt in options {
-        OptInsertion { question_id: id, option: opt }.insert(&mut tx).await?;
+        query("INSERT INTO options (question_id, option) VALUES ($1, $2)").bind(id).bind(opt).execute(&mut tx).await?;
     }
 
     query("INSERT INTO question_read_marks (question_id, user_id, version) VALUES ($1, $2, 1)")
@@ -71,7 +71,7 @@ pub async fn create(
         .execute(&mut tx)
         .await?;
     tx.commit().await?;
-    return Ok(Json(CreateResponse { id: id }));
+    return Ok(Json(CreateResponse { id }));
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -104,7 +104,7 @@ pub async fn list(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<PgPool>) 
     .await?;
     let list = query_as(
         "
-        SELECT q.id, q.description, q.type_, q.version, COUNT(distinct a.id) > 0, q.version > SUM(qrm.version)
+        SELECT q.id, q.description, q.type_, q.version, COUNT(distinct a.id) > 0 AS has_answered, q.version > SUM(qrm.version) AS has_updated
         FROM users AS u
         JOIN users_organizations AS uo ON u.id = uo.user_id
         JOIN organizations AS o ON uo.organization_id = o.id

@@ -1,3 +1,9 @@
+use actix_web::dev::Transform;
+use futures::{
+    future::{ready, Ready},
+    Future,
+};
+
 use crate::error::Error;
 
 pub trait Authorizer {

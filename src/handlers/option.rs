@@ -30,11 +30,12 @@ pub async fn list(user_info: UserInfo, qst_id: Path<(i32,)>, db: Data<PgPool>) -
     let mut conn = db.acquire().await?;
     let (question_type,): (QuestionType,) = query_as(
         r#"
-        SELECT q.type
+        SELECT q.type_
         FROM users AS u
         JOIN users_organizations AS uo ON u.id = uo.user_id
         JOIN organizations AS o ON uo.organization_id = o.id
         JOIN votes AS v ON o.id = v.organization_id
+        JOIN questions AS q ON v.id = q.vote_id
         WHERE u.id = $1 AND q.id = $2"#,
     )
     .bind(user_info.id)
@@ -43,13 +44,13 @@ pub async fn list(user_info: UserInfo, qst_id: Path<(i32,)>, db: Data<PgPool>) -
     .await?;
     let items: Vec<Item> = query_as(
         r#"
-        SELECT op.id, op.option, a.id IS NOT NULL
+        SELECT op.id, op.option, a.id IS NOT NULL AS checked
         FROM users AS u
         JOIN users_organizations AS uo on u.id = uo.user_id
         JOIN organizations AS og ON uo.organization_id = og.id
-        JOIN votes AS v ON o.id = v.organization_id
+        JOIN votes AS v ON og.id = v.organization_id
         JOIN questions AS q ON v.id = q.vote_id
-        JOIN options AS op ON q.id = o.question_id
+        JOIN options AS op ON q.id = op.question_id
         LEFT JOIN answers AS a ON op.id = a.option_id AND u.id = a.user_id
         WHERE u.id = $1 AND q.id = $2"#,
     )

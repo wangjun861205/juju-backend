@@ -92,7 +92,7 @@ pub async fn date_range_list(user_info: UserInfo, vote_id: Path<(i32,)>, db: Dat
     let vote_id = vote_id.into_inner().0;
     let ranges: Vec<(PgRange<NaiveDate>,)> = query_as(
         r#"
-    SELECT dr.range 
+    SELECT dr.range_
     FROM users AS u
     JOIN users_organizations AS uo ON u.id = uo.user_id
     JOIN organizations AS o ON uo.organization_id = o.id

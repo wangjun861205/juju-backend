@@ -98,7 +98,14 @@ pub async fn signup(
     db: Data<PgPool>,
 ) -> Result<HttpResponse, Error> {
     let mut tx = db.begin().await?;
-    let (deleted,): (i64,) = query_as("DELETE FROM invite_codes WHERE code = $1").bind(invite_code).fetch_one(&mut tx).await?;
+    let (deleted,): (i64,) = query_as(
+        "
+    WITH deleted AS (DELETE FROM invite_codes WHERE code = $1 RETURNING *)
+    SELECT COUNT(*) FROM deleted",
+    )
+    .bind(invite_code)
+    .fetch_one(&mut tx)
+    .await?;
     if deleted == 0 {
         return Err(Error::BusinessError("invalid invite code".into()));
     }

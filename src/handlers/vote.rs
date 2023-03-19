@@ -80,8 +80,8 @@ pub struct VoteUpdation {
 pub async fn update(user_info: UserInfo, vote_id: Path<(i32,)>, Json(VoteUpdation { name, deadline }): Json<VoteUpdation>, db: Data<PgPool>) -> Result<Json<UpdateResponse>, Error> {
     let vote_id = vote_id.into_inner().0;
     let mut conn = db.acquire().await?;
-    let (updated,): (i32,) = query_as(
-        "UPDATE votes
+    let (updated,): (i64,) = query_as(
+        "WITH updated AS (UPDATE votes
     SET name = $1, deadline = $2, version = version + 1
     WHERE id = $3
     AND id IN (
@@ -90,7 +90,9 @@ pub async fn update(user_info: UserInfo, vote_id: Path<(i32,)>, Json(VoteUpdatio
         JOIN users_organizations AS uo ON u.id = uo.user_id
         JOIN organizations AS o ON uo.organization_id = o.id
         JOIN votes AS v ON o.id = v.organization_id
-        WHERE u.id = $4)",
+        WHERE u.id = $4)
+    RETURNING *)
+    SELECT COUNT(*) FROM updated",
     )
     .bind(name)
     .bind(deadline)

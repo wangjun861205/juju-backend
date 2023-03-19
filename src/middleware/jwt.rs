@@ -1,3 +1,4 @@
+use actix_web::error::ErrorForbidden;
 use serde::{Deserialize, Serialize};
 
 use crate::actix_web::{
