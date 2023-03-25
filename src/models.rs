@@ -120,9 +120,9 @@ pub struct QuestionInsertion {
 
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct Opt {
-    id: i32,
-    option: String,
-    question_id: i32,
+    pub id: i32,
+    pub option: String,
+    pub question_id: i32,
 }
 
 #[derive(Debug, Clone, Deserialize, Insertable)]

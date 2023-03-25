@@ -94,6 +94,7 @@ async fn main() -> Result<(), std::io::Error> {
                                         .route("", get().to(handlers::vote::detail))
                                         .route("", put().to(handlers::vote::update))
                                         .route("", delete().to(handlers::vote::delete_vote))
+                                        .route("questions_with_options", get().to(handlers::question::questions_with_options_by_vote_id))
                                         .service(
                                             scope("date_ranges")
                                                 .route("", get().to(handlers::date::date_range_list))
