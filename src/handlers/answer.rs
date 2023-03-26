@@ -1,3 +1,6 @@
+use serde::Deserialize;
+use sqlx::query_scalar;
+
 use crate::actix_web::{
     http::StatusCode,
     web::{Data, Json, Path},
@@ -132,4 +135,30 @@ pub async fn answer_list(user_info: UserInfo, qst_id: Path<(i32,)>, db: Data<PgP
         options: options,
         answers: answers.into_iter().map(|v| v.0).collect(),
     }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SubmitAnswer {
+    question_id: i32,
+    option_id: i32,
+}
+
+pub async fn submit_answers(db: Data<PgPool>, user_info: UserInfo, vote_id: Path<(i32,)>, Json(answers): Json<Vec<SubmitAnswer>>) -> Result<usize, Error> {
+    let mut tx = db.begin().await?;
+    let isValid: bool = query_scalar(
+        "
+    SELECT EXISTS(
+        SELECT *
+        FROM users AS u
+        JOIN users_organizations AS uo ON u.id = uo.user_id
+        JOIN votes AS v ON uo.organization_id = v.id
+        WHERE u.id = $1 AND v.id = $2
+        FOR SHARE
+    )",
+    )
+    .bind(user_info.id)
+    .bind(vote_id.0)
+    .fetch_one(&mut tx)
+    .await?;
+    Ok(0)
 }
