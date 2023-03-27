@@ -1,3 +1,4 @@
+use env_logger::builder;
 use serde::Deserialize;
 use sqlx::query_scalar;
 
@@ -140,12 +141,12 @@ pub async fn answer_list(user_info: UserInfo, qst_id: Path<(i32,)>, db: Data<PgP
 #[derive(Debug, Deserialize)]
 pub struct SubmitAnswer {
     question_id: i32,
-    option_id: i32,
+    option_ids: Vec<i32>,
 }
 
-pub async fn submit_answers(db: Data<PgPool>, user_info: UserInfo, vote_id: Path<(i32,)>, Json(answers): Json<Vec<SubmitAnswer>>) -> Result<usize, Error> {
+pub async fn submit_answers(db: Data<PgPool>, user_info: UserInfo, vote_id: Path<(i32,)>, Json(answers): Json<Vec<SubmitAnswer>>) -> Result<HttpResponse, Error> {
     let mut tx = db.begin().await?;
-    let isValid: bool = query_scalar(
+    let is_valid: bool = query_scalar(
         "
     SELECT EXISTS(
         SELECT *
@@ -160,5 +161,27 @@ pub async fn submit_answers(db: Data<PgPool>, user_info: UserInfo, vote_id: Path
     .bind(vote_id.0)
     .fetch_one(&mut tx)
     .await?;
-    Ok(0)
+    if !is_valid {
+        tx.rollback().await?;
+        return Err(Error::ActixError(actix_web::error::ErrorForbidden("no permission")));
+    }
+    QueryBuilder::new("DELETE FROM answers WHERE (user_id, question_id) IN ")
+        .push_tuples(&answers, |mut s, a| {
+            s.push_bind(user_info.id);
+            s.push_bind(a.question_id);
+        })
+        .build()
+        .execute(&mut tx)
+        .await?;
+    QueryBuilder::new("INSERT INTO answers (user_id, option_id, question_id)")
+        .push_values(answers.iter().map(|a| a.option_ids.iter().map(|&id| (a.question_id, id))).flatten(), |mut s, a| {
+            s.push_bind(user_info.id);
+            s.push_bind(a.1);
+            s.push_bind(a.0);
+        })
+        .build()
+        .execute(&mut tx)
+        .await?;
+    tx.commit().await?;
+    Ok(HttpResponse::build(StatusCode::CREATED).finish())
 }

@@ -110,7 +110,8 @@ async fn main() -> Result<(), std::io::Error> {
                                                 .route("", post().to(handlers::question::create))
                                                 .route("", get().to(handlers::question::list))
                                                 .route("report", get().to(handlers::vote::question_reports)),
-                                        ),
+                                        )
+                                        .service(scope("answers").route("", post().to(handlers::answer::submit_answers))),
                                 ),
                             )
                             .service(
