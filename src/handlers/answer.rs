@@ -1,4 +1,3 @@
-use env_logger::builder;
 use serde::Deserialize;
 use sqlx::query_scalar;
 
@@ -138,13 +137,14 @@ pub async fn answer_list(user_info: UserInfo, qst_id: Path<(i32,)>, db: Data<PgP
     }))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SubmitAnswer {
     question_id: i32,
     option_ids: Vec<i32>,
 }
 
 pub async fn submit_answers(db: Data<PgPool>, user_info: UserInfo, vote_id: Path<(i32,)>, Json(answers): Json<Vec<SubmitAnswer>>) -> Result<HttpResponse, Error> {
+    let vote_id = vote_id.into_inner().0;
     let mut tx = db.begin().await?;
     let is_valid: bool = query_scalar(
         "
@@ -158,7 +158,7 @@ pub async fn submit_answers(db: Data<PgPool>, user_info: UserInfo, vote_id: Path
     )",
     )
     .bind(user_info.id)
-    .bind(vote_id.into_inner().0)
+    .bind(vote_id)
     .fetch_one(&mut tx)
     .await?;
     if !is_valid {
@@ -170,7 +170,7 @@ pub async fn submit_answers(db: Data<PgPool>, user_info: UserInfo, vote_id: Path
         SELECT id FROM questions WHERE vote_id = $1)",
     )
     .bind(user_info.id)
-    .bind(vote_id.into_inner().0)
+    .bind(vote_id)
     .execute(&mut tx)
     .await?;
     QueryBuilder::new("INSERT INTO answers (user_id, option_id, question_id)")
@@ -184,4 +184,45 @@ pub async fn submit_answers(db: Data<PgPool>, user_info: UserInfo, vote_id: Path
         .await?;
     tx.commit().await?;
     Ok(HttpResponse::build(StatusCode::CREATED).finish())
+}
+
+type SubmittedAnswer = SubmitAnswer;
+
+pub async fn answers(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<Vec<SubmittedAnswer>>, Error> {
+    let vote_id = vote_id.into_inner().0;
+    let answers: Vec<(i32, Option<i32>)> = query_as(
+        "
+    SELECT
+        q.id AS question_id,
+        a.option_id AS option_id
+    FROM users AS u
+    JOIN users_organizations AS uo ON u.id = uo.user_id
+    JOIN votes AS v ON uo.organization_id = v.organization_id
+    JOIN questions AS q ON v.id = q.vote_id
+    LEFT JOIN answers AS a ON a.question_id = q.id AND a.user_id = u.id
+    WHERE u.id = $1 AND v.id = $2
+    ORDER BY question_id",
+    )
+    .bind(user_info.id)
+    .bind(vote_id)
+    .fetch_all(&mut db.acquire().await?)
+    .await?;
+    let res = answers.into_iter().fold(Vec::<SubmittedAnswer>::new(), |mut l, (qid, oid)| {
+        if let Some(mut last) = l.pop() {
+            if last.question_id == qid {
+                if let Some(oid) = oid {
+                    last.option_ids.push(oid);
+                }
+                l.push(last);
+                return l;
+            }
+            l.push(last);
+        }
+        l.push(SubmittedAnswer {
+            question_id: qid,
+            option_ids: if let Some(oid) = oid { vec![oid] } else { Vec::new() },
+        });
+        l
+    });
+    Ok(Json(res))
 }
