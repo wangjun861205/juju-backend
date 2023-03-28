@@ -24,7 +24,7 @@ impl FileStorer for LocalStorer {
         hasher.update(&bytes);
         let name = format!("{:x}", hasher.finalize());
         let mut file = File::create(Path::new(&self.path).join(&name))?;
-        file.write(&bytes)?;
+        file.write_all(&bytes)?;
         Ok(name)
     }
     fn read(&self, fetch_code: &str) -> Result<Bytes, Error> {
