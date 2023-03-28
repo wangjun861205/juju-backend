@@ -158,21 +158,21 @@ pub async fn submit_answers(db: Data<PgPool>, user_info: UserInfo, vote_id: Path
     )",
     )
     .bind(user_info.id)
-    .bind(vote_id.0)
+    .bind(vote_id.into_inner().0)
     .fetch_one(&mut tx)
     .await?;
     if !is_valid {
         tx.rollback().await?;
         return Err(Error::ActixError(actix_web::error::ErrorForbidden("no permission")));
     }
-    QueryBuilder::new("DELETE FROM answers WHERE (user_id, question_id) IN ")
-        .push_tuples(&answers, |mut s, a| {
-            s.push_bind(user_info.id);
-            s.push_bind(a.question_id);
-        })
-        .build()
-        .execute(&mut tx)
-        .await?;
+    query(
+        "DELETE FROM answers WHERE user_id = $1 AND question_id IN (
+        SELECT id FROM questions WHERE vote_id = $1)",
+    )
+    .bind(user_info.id)
+    .bind(vote_id.into_inner().0)
+    .execute(&mut tx)
+    .await?;
     QueryBuilder::new("INSERT INTO answers (user_id, option_id, question_id)")
         .push_values(answers.iter().map(|a| a.option_ids.iter().map(|&id| (a.question_id, id))).flatten(), |mut s, a| {
             s.push_bind(user_info.id);
