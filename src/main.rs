@@ -11,6 +11,7 @@ extern crate futures;
 extern crate futures_util;
 extern crate hex;
 extern crate hex_literal;
+extern crate itertools;
 extern crate jsonwebtoken;
 extern crate rand;
 extern crate serde;
@@ -20,6 +21,7 @@ extern crate sqlx;
 extern crate sqlx_insert;
 extern crate thiserror;
 extern crate tokio;
+extern crate default;
 
 mod authorizer;
 mod context;

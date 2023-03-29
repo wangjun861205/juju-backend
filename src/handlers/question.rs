@@ -201,6 +201,7 @@ struct QuestionWithOptions {
 }
 
 pub async fn questions_with_options_by_vote_id(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<List<QuestionDetail>>, Error> {
+    let vote_id = vote_id.into_inner().0;
     let total = query_scalar(
         "
             SELECT COUNT(*)
@@ -212,7 +213,7 @@ pub async fn questions_with_options_by_vote_id(user_info: UserInfo, vote_id: Pat
     ",
     )
     .bind(user_info.id)
-    .bind(vote_id.0)
+    .bind(vote_id)
     .fetch_one(&mut db.acquire().await?)
     .await?;
     let list: Vec<QuestionWithOptions> = query_as(
@@ -237,7 +238,7 @@ pub async fn questions_with_options_by_vote_id(user_info: UserInfo, vote_id: Pat
         ",
     )
     .bind(user_info.id)
-    .bind(vote_id.0)
+    .bind(vote_id)
     .fetch_all(&mut db.acquire().await?)
     .await?;
     let list = list.into_iter().fold(Vec::<QuestionDetail>::new(), |mut l, q| {

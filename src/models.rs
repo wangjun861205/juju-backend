@@ -95,13 +95,14 @@ pub struct VoteUpdation {
 #[derive(sqlx::Type)]
 #[sqlx(type_name = "question_type")]
 #[sqlx(rename_all = "UPPERCASE")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum QuestionType {
+    #[default]
     Single,
     Multi,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow)]
+#[derive(Debug, Clone, Serialize, FromRow, Default)]
 pub struct Question {
     pub id: i32,
     pub description: String,
@@ -132,7 +133,7 @@ pub struct OptInsertion {
     pub question_id: i32,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, FromRow)]
 pub struct Answer {
     id: i32,
     user_id: i32,

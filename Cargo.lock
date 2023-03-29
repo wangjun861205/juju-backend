@@ -699,6 +699,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "default"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f33853de3c94db27f825215641be74ddce259f5aec7aefae9c760ee1bb3dbaa7"
+
+[[package]]
 name = "derive_more"
 version = "0.99.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1282,12 +1288,14 @@ dependencies = [
  "bytes",
  "casbin",
  "chrono",
+ "default",
  "dotenv",
  "env_logger",
  "futures",
  "futures-util",
  "hex",
  "hex-literal",
+ "itertools",
  "jsonwebtoken",
  "rand",
  "serde",
