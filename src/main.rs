@@ -5,6 +5,7 @@ extern crate actix_web;
 extern crate bytes;
 extern crate casbin;
 extern crate chrono;
+extern crate default;
 extern crate dotenv;
 extern crate env_logger;
 extern crate futures;
@@ -21,7 +22,6 @@ extern crate sqlx;
 extern crate sqlx_insert;
 extern crate thiserror;
 extern crate tokio;
-extern crate default;
 
 mod authorizer;
 mod context;
@@ -37,6 +37,7 @@ mod storer;
 use actix_web::web::{delete, get, post, put, resource, scope, Data};
 use actix_web::HttpServer;
 use authorizer::PgAuthorizer;
+use handlers::organization::Author;
 use middleware::jwt::JWT;
 use sqlx::postgres::PgPoolOptions;
 
@@ -79,6 +80,7 @@ async fn main() -> Result<(), std::io::Error> {
                                     .route("", post().to(handlers::organization::create))
                                     .service(
                                         scope("{organization_id}")
+                                            .wrap(Author { db: pool.clone() })
                                             .route("", get().to(handlers::organization::detail))
                                             .route("", put().to(handlers::organization::update))
                                             .route("", delete().to(handlers::organization::delete_organization))

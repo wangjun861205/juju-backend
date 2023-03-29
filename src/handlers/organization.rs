@@ -1,8 +1,10 @@
-use actix_web::dev::{Service, Transform};
+use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
+use actix_web::error::{ErrorForbidden, ErrorUnauthorized};
+use actix_web::http::StatusCode;
 use actix_web::{HttpMessage, HttpResponse};
 use futures::future::{ready, Ready};
 use futures::Future;
-use sqlx::{query, query_as, FromRow, PgPool, QueryBuilder};
+use sqlx::{query, query_as, query_scalar, FromRow, PgPool, QueryBuilder};
 use std::pin::Pin;
 use std::task::Poll;
 
@@ -18,35 +20,56 @@ use crate::serde::{Deserialize, Serialize};
 use crate::handlers::authorizer::Authorizer;
 use crate::response::List;
 
-struct Author {
-    db: PgPool,
+pub struct Author {
+    pub db: PgPool,
 }
 
-struct AuthorMiddleware<S> {
+pub struct AuthorMiddleware<S> {
     db: PgPool,
     service: S,
 }
 
-impl<S, Req> Service<Req> for AuthorMiddleware<S>
+impl<S> Service<ServiceRequest> for AuthorMiddleware<S>
 where
-    S: Service<Req>,
-    Req: HttpMessage,
+    S: Service<ServiceRequest, Response = ServiceResponse>,
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Future = S::Future;
+    type Future = Pin<Box<dyn Future<Output = ServiceResponse>>>;
     fn poll_ready(&self, ctx: &mut core::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
-    fn call(&self, req: Req) -> Self::Future {
+    fn call(&self, req: ServiceRequest) -> Self::Future {
+        if let Some(uid) = req.extensions().get::<UserInfo>() {
+            if let Some(oid) = req.match_info().get("organization_id") {
+                if let Ok(oid) = oid.parse::<i32>() {
+                    let q = query_scalar(
+                        "
+                    SELECT EXISTS(
+                        SELECT id 
+                        FROM users_organizations
+                        WHERE user_id = $1 AND organization_id = $2)",
+                    )
+                    .bind(uid.id)
+                    .bind(oid);
+                    let db = self.db.clone();
+                    return Box::pin(async move {
+                        let ok: bool = q.fetch_one(db.acquire().await?).await?;
+                        if !ok {
+                            return ErrorForbidden("unauthorized");
+                        }
+                        self.service.call(req).await
+                    });
+                }
+            }
+        }
         self.service.call(req)
     }
 }
 
-impl<S, Req> Transform<S, Req> for Author
+impl<S> Transform<S, ServiceRequest> for Author
 where
-    S: Service<Req>,
-    Req: HttpMessage,
+    S: Service<ServiceRequest, Response = ServiceResponse>,
 {
     type Future = Ready<Result<Self::Transform, Self::InitError>>;
     type Response = S::Response;
