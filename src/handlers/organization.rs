@@ -1,4 +1,10 @@
+use actix_web::dev::{Service, Transform};
+use actix_web::{HttpMessage, HttpResponse};
+use futures::future::{ready, Ready};
+use futures::Future;
 use sqlx::{query, query_as, FromRow, PgPool, QueryBuilder};
+use std::pin::Pin;
+use std::task::Poll;
 
 use crate::actix_web::web::{Data, Json, Path, Query};
 use crate::context::UserInfo;
@@ -11,6 +17,46 @@ use crate::serde::{Deserialize, Serialize};
 
 use crate::handlers::authorizer::Authorizer;
 use crate::response::List;
+
+struct Author {
+    db: PgPool,
+}
+
+struct AuthorMiddleware<S> {
+    db: PgPool,
+    service: S,
+}
+
+impl<S, Req> Service<Req> for AuthorMiddleware<S>
+where
+    S: Service<Req>,
+    Req: HttpMessage,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = S::Future;
+    fn poll_ready(&self, ctx: &mut core::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+    fn call(&self, req: Req) -> Self::Future {
+        self.service.call(req)
+    }
+}
+
+impl<S, Req> Transform<S, Req> for Author
+where
+    S: Service<Req>,
+    Req: HttpMessage,
+{
+    type Future = Ready<Result<Self::Transform, Self::InitError>>;
+    type Response = S::Response;
+    type Error = S::Error;
+    type InitError = ();
+    type Transform = AuthorMiddleware<S>;
+    fn new_transform(&self, service: S) -> Self::Future {
+        ready(Ok(AuthorMiddleware { db: self.db.clone(), service }))
+    }
+}
 
 pub async fn delete_organization(user_info: UserInfo, organization_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<DeleteResponse>, Error> {
     let organization_id = organization_id.into_inner().0;

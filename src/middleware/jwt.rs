@@ -35,7 +35,7 @@ where
     type Future = Ready<Result<Self::Transform, Self::InitError>>;
 
     fn new_transform(&self, service: S) -> Self::Future {
-        ready(Ok(JWTService { service: service }))
+        ready(Ok(JWTService { service }))
     }
 }
 
