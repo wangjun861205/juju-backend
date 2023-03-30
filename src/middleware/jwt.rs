@@ -43,8 +43,9 @@ pub struct JWTService<S> {
     service: S,
 }
 
-impl<S: Service<ServiceRequest, Error = Error, Response = ServiceResponse>> Service<ServiceRequest> for JWTService<S>
+impl<S> Service<ServiceRequest> for JWTService<S>
 where
+    S: Service<ServiceRequest, Error = Error, Response = ServiceResponse>,
     S::Future: 'static,
 {
     type Response = ServiceResponse;

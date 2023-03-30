@@ -80,7 +80,6 @@ async fn main() -> Result<(), std::io::Error> {
                                     .route("", post().to(handlers::organization::create))
                                     .service(
                                         scope("{organization_id}")
-                                            .wrap(Author { db: pool.clone() })
                                             .route("", get().to(handlers::organization::detail))
                                             .route("", put().to(handlers::organization::update))
                                             .route("", delete().to(handlers::organization::delete_organization))
@@ -92,6 +91,7 @@ async fn main() -> Result<(), std::io::Error> {
                                             ),
                                     ),
                             )
+                            .wrap(Author { db: pool.clone() })
                             .service(
                                 scope("votes").route("", post().to(handlers::vote::create)).service(
                                     scope("{vote_id}")
