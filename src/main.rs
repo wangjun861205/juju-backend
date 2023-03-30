@@ -37,7 +37,7 @@ mod storer;
 use actix_web::web::{delete, get, post, put, resource, scope, Data};
 use actix_web::HttpServer;
 use authorizer::PgAuthorizer;
-use handlers::organization::Author;
+use middleware::authorizer::Author;
 use middleware::jwt::JWT;
 use sqlx::postgres::PgPoolOptions;
 
@@ -68,7 +68,6 @@ async fn main() -> Result<(), std::io::Error> {
                     .service(resource("signup").route(post().to(handlers::signup)))
                     .service(
                         scope("")
-                            .wrap(JWT {})
                             .service(
                                 scope("upload")
                                     .route("", post().to(handlers::upload::create::<storer::LocalStorer>))
@@ -80,6 +79,14 @@ async fn main() -> Result<(), std::io::Error> {
                                     .route("", post().to(handlers::organization::create))
                                     .service(
                                         scope("{organization_id}")
+                                            .wrap(Author::new(
+                                                pool.clone(),
+                                                "SELECT EXISTS(
+                                                    SELECT id 
+                                                    FROM users_organizations
+                                                    WHERE user_id = $1 AND organization_id = $2)",
+                                                "organization_id",
+                                            ))
                                             .route("", get().to(handlers::organization::detail))
                                             .route("", put().to(handlers::organization::update))
                                             .route("", delete().to(handlers::organization::delete_organization))
@@ -91,7 +98,6 @@ async fn main() -> Result<(), std::io::Error> {
                                             ),
                                     ),
                             )
-                            .wrap(Author { db: pool.clone() })
                             .service(
                                 scope("votes").route("", post().to(handlers::vote::create)).service(
                                     scope("{vote_id}")
@@ -128,7 +134,8 @@ async fn main() -> Result<(), std::io::Error> {
                                 ),
                             )
                             .service(scope("users").route("", get().to(handlers::user::list))),
-                    ),
+                    )
+                    .wrap(JWT {}),
             )
     })
     .bind(("0.0.0.0", 8000))?

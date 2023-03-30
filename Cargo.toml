@@ -33,3 +33,4 @@ sqlx = { version = "0.6.2", features = [
 sqlx-insert = { version = "*", git = "https://github.com/wangjun861205/sqlx-insert" }
 itertools = "0.10.5"
 default = "0.1.2"
+log = "0.4.17"

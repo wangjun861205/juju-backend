@@ -1,13 +1,4 @@
-use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
-use actix_web::error::{ErrorForbidden, ErrorUnauthorized};
-use actix_web::http::StatusCode;
-use actix_web::{HttpMessage, HttpResponse};
-use futures::future::{ready, Ready};
-use futures::Future;
-use sqlx::query::QueryScalar;
-use sqlx::{query, query_as, query_scalar, FromRow, PgPool, QueryBuilder};
-use std::pin::Pin;
-use std::task::Poll;
+use sqlx::{query, query_as, FromRow, PgPool, QueryBuilder};
 
 use crate::actix_web::web::{Data, Json, Path, Query};
 use crate::context::UserInfo;
@@ -20,85 +11,6 @@ use crate::serde::{Deserialize, Serialize};
 
 use crate::handlers::authorizer::Authorizer;
 use crate::response::List;
-
-pub struct Author {
-    pub db: PgPool,
-}
-
-pub struct AuthorMiddleware<S> {
-    db: PgPool,
-    service: S,
-}
-
-impl<S> Service<ServiceRequest> for AuthorMiddleware<S>
-where
-    S: Service<ServiceRequest, Response = ServiceResponse, Error = actix_web::Error>,
-    S::Future: 'static,
-{
-    type Response = S::Response;
-    type Error = S::Error;
-    type Future = Pin<Box<dyn Future<Output = Result<ServiceResponse, Self::Error>>>>;
-    fn poll_ready(&self, ctx: &mut core::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
-    }
-    fn call(&self, req: ServiceRequest) -> Self::Future {
-        let user_info = req.extensions_mut().remove::<UserInfo>();
-        if user_info.is_some() {
-            req.extensions_mut().insert(user_info.clone());
-        }
-        let path = req.match_info().clone();
-        if let Some(user_info) = user_info {
-            let uid = user_info.id;
-            let next = self.service.call(req);
-            if let Some(oid) = path.get("organization_id") {
-                if let Ok(oid) = oid.parse::<i32>() {
-                    let q: QueryScalar<_, bool, _> = query_scalar(
-                        "
-                    SELECT EXISTS(
-                        SELECT id 
-                        FROM users_organizations
-                        WHERE user_id = $1 AND organization_id = $2)",
-                    )
-                    .bind(uid)
-                    .bind(oid);
-                    let db = self.db.clone();
-                    return Box::pin(async move {
-                        match db.acquire().await {
-                            Ok(mut conn) => match q.fetch_one(&mut conn).await {
-                                Ok(is_valid) => {
-                                    if !is_valid {
-                                        return Err(actix_web::error::ErrorForbidden("forbidden"));
-                                    }
-                                    next.await
-                                }
-                                Err(err) => Err(actix_web::error::ErrorInternalServerError(err)),
-                            },
-                            Err(err) => Err(actix_web::error::ErrorInternalServerError(err)),
-                        }
-                    });
-                }
-                return Box::pin(async move { Err(actix_web::error::ErrorBadRequest("invalid argument")) });
-            }
-            return Box::pin(async move { next.await });
-        }
-        Box::pin(async move { Err(actix_web::error::ErrorUnauthorized("unauthorized")) })
-    }
-}
-
-impl<S> Transform<S, ServiceRequest> for Author
-where
-    S: Service<ServiceRequest, Response = ServiceResponse, Error = actix_web::Error>,
-    S::Future: 'static,
-{
-    type Future = Ready<Result<Self::Transform, Self::InitError>>;
-    type Response = S::Response;
-    type Error = S::Error;
-    type InitError = ();
-    type Transform = AuthorMiddleware<S>;
-    fn new_transform(&self, service: S) -> Self::Future {
-        ready(Ok(AuthorMiddleware { db: self.db.clone(), service }))
-    }
-}
 
 pub async fn delete_organization(user_info: UserInfo, organization_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<DeleteResponse>, Error> {
     let organization_id = organization_id.into_inner().0;
