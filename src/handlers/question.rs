@@ -263,14 +263,3 @@ pub async fn questions_with_options_by_vote_id(user_info: UserInfo, vote_id: Pat
     });
     Ok(Json(List::new(list, total)))
 }
-
-pub struct QuestionWithOptionsAndAnswers {
-    id: i32,
-    description: String,
-    type_: QuestionType,
-    version: i32,
-    options: Vec<Opt>,
-    answers: Vec<Answer>,
-}
-
-pub async fn question_with_options_and_answers(user_info: UserInfo, question_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<Vec<QuestionWithOptionsAndAnswers>>, Error> {}
