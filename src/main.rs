@@ -38,7 +38,7 @@ use actix_web::web::{delete, get, post, put, resource, scope, Data};
 use actix_web::HttpServer;
 use authorizer::PgAuthorizer;
 use middleware::authorizer::Author;
-use middleware::jwt::JWT;
+use middleware::jwt::Jwt;
 use sqlx::postgres::PgPoolOptions;
 
 #[derive(Debug, Clone)]
@@ -68,6 +68,7 @@ async fn main() -> Result<(), std::io::Error> {
                     .service(resource("signup").route(post().to(handlers::signup)))
                     .service(
                         scope("")
+                        .wrap(Jwt {})
                             .service(
                                 scope("upload")
                                     .route("", post().to(handlers::upload::create::<storer::LocalStorer>))
@@ -81,10 +82,7 @@ async fn main() -> Result<(), std::io::Error> {
                                         scope("{organization_id}")
                                             .wrap(Author::new(
                                                 pool.clone(),
-                                                "SELECT EXISTS(
-                                                    SELECT id 
-                                                    FROM users_organizations
-                                                    WHERE user_id = $1 AND organization_id = $2)",
+                                                "SELECT EXISTS(SELECT id FROM users_organizations WHERE user_id = $1 AND organization_id = $2)",
                                                 "organization_id",
                                             ))
                                             .route("", get().to(handlers::organization::detail))
@@ -101,10 +99,16 @@ async fn main() -> Result<(), std::io::Error> {
                             .service(
                                 scope("votes").route("", post().to(handlers::vote::create)).service(
                                     scope("{vote_id}")
+                                        .wrap(Author::new(
+                                            pool.clone(),
+                                            "SELECT EXISTS(SELECT uo.id FROM users_organizations AS uo JOIN votes AS v ON uo.organization_id = v.organization_id WHERE uo.user_id = $1 AND v.id = $2)",
+                                            "vote_id",
+                                        ))
                                         .route("", get().to(handlers::vote::detail))
                                         .route("", put().to(handlers::vote::update))
                                         .route("", delete().to(handlers::vote::delete_vote))
                                         .route("questions_with_options", get().to(handlers::question::questions_with_options_by_vote_id))
+                                        .route("question_ids", get().to(handlers::vote::question_ids))
                                         .service(
                                             scope("date_ranges")
                                                 .route("", get().to(handlers::date::date_range_list))
@@ -127,6 +131,11 @@ async fn main() -> Result<(), std::io::Error> {
                             .service(
                                 scope("questions").service(
                                     scope("{question_id}")
+                                        .wrap(Author::new(
+                                            pool.clone(),
+                                            "SELECT EXISTS(SELECT uo.id FROM users_organizations AS uo JOIN votes AS v ON uo.organization_id = v.organization_id JOIN questions AS q ON v.id = q.vote_id WHERE uo.user_id = $1 AND q.id = $2)",
+                                            "question_id"
+                                        ))
                                         .route("", get().to(handlers::question::detail))
                                         .route("", delete().to(handlers::question::delete))
                                         .service(scope("options").route("", post().to(handlers::option::add_opts)).route("", get().to(handlers::option::list)))
@@ -134,8 +143,7 @@ async fn main() -> Result<(), std::io::Error> {
                                 ),
                             )
                             .service(scope("users").route("", get().to(handlers::user::list))),
-                    )
-                    .wrap(JWT {}),
+                    ),
             )
     })
     .bind(("0.0.0.0", 8000))?

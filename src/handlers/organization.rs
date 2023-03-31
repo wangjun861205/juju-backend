@@ -117,7 +117,7 @@ pub async fn list(user_info: UserInfo, Query(Pagination { page, size }): Query<P
     .fetch_all(&mut tx)
     .await?;
     tx.commit().await?;
-    return Ok(Json(List::new(orgs, total)));
+    Ok(Json(List::new(orgs, total)))
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -145,7 +145,7 @@ pub async fn create(user_info: UserInfo, Json(OrganizationCreation { name }): Js
         .execute(&mut tx)
         .await?;
     tx.commit().await?;
-    return Ok(Json(CreateResponse { id }));
+    Ok(Json(CreateResponse { id }))
 }
 
 #[derive(Deserialize)]
@@ -164,8 +164,9 @@ pub async fn update(user_info: UserInfo, org_id: Path<(i32,)>, Json(req): Json<U
         JOIN users_organizations AS uo ON u.id = uo.user_id
         JOIN organizations AS o ON uo.organization_id = o.id
         WHERE u.id = $1
-        AND o.id = $1)",
+        AND o.id = $3)",
     )
+    .bind(req.name)
     .bind(user_info.id)
     .bind(org_id)
     .fetch_one(&mut db.acquire().await?)

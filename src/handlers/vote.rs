@@ -40,7 +40,7 @@ pub async fn create(user_info: UserInfo, org_id: Path<(i32,)>, Json(body): Json<
 
     let (vote_id,): (i32,) = query_as("INSERT INTO votes (name, deadline, organization_id) VALUES ($1, $2, $3) RETURNING id")
         .bind(body.name)
-        .bind(if let Some(dl) = body.deadline { Some(dl.naive_utc().date()) } else { None })
+        .bind(body.deadline.map(|dl| dl.naive_utc().date()))
         .bind(org_id)
         .fetch_one(&mut tx)
         .await?;
@@ -69,7 +69,7 @@ pub async fn create(user_info: UserInfo, org_id: Path<(i32,)>, Json(body): Json<
         .execute(&mut tx)
         .await?;
     tx.commit().await?;
-    return Ok(Json(CreateResponse { id: vote_id }));
+    Ok(Json(CreateResponse { id: vote_id }))
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -300,4 +300,10 @@ pub async fn delete_vote(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<Pg
     .fetch_one(&mut db.acquire().await?)
     .await?;
     Ok(Json(DeleteResponse::new(deleted)))
+}
+
+pub async fn question_ids(vote_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<Vec<i32>>, Error> {
+    let vid = vote_id.into_inner().0;
+    let ids: Vec<(i32,)> = query_as("SELECT id FROM questions WHERE vote_id = $1").bind(vid).fetch_all(&mut db.acquire().await?).await?;
+    Ok(Json(ids.into_iter().map(|v| v.0).collect()))
 }

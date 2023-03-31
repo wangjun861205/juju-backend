@@ -131,8 +131,8 @@ pub async fn answer_list(user_info: UserInfo, qst_id: Path<(i32,)>, db: Data<PgP
     .await?;
     tx.commit().await?;
     Ok(Json(AnswerList {
-        question_type: question_type,
-        options: options,
+        question_type,
+        options,
         answers: answers.into_iter().map(|v| v.0).collect(),
     }))
 }
@@ -174,7 +174,7 @@ pub async fn submit_answers(db: Data<PgPool>, user_info: UserInfo, vote_id: Path
     .execute(&mut tx)
     .await?;
     QueryBuilder::new("INSERT INTO answers (user_id, option_id, question_id)")
-        .push_values(answers.iter().map(|a| a.option_ids.iter().map(|&id| (a.question_id, id))).flatten(), |mut s, a| {
+        .push_values(answers.iter().flat_map(|a| a.option_ids.iter().map(|&id| (a.question_id, id))), |mut s, a| {
             s.push_bind(user_info.id);
             s.push_bind(a.1);
             s.push_bind(a.0);

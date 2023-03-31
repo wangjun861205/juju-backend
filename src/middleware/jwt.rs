@@ -1,4 +1,3 @@
-use actix_web::error::ErrorForbidden;
 use serde::{Deserialize, Serialize};
 
 use crate::actix_web::{
@@ -21,9 +20,9 @@ pub struct Claim {
     pub exp: usize,
 }
 
-pub struct JWT;
+pub struct Jwt;
 
-impl<S> Transform<S, ServiceRequest> for JWT
+impl<S> Transform<S, ServiceRequest> for Jwt
 where
     S: Service<ServiceRequest, Error = Error, Response = ServiceResponse>,
     S::Future: 'static,

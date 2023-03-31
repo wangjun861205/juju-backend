@@ -5,7 +5,7 @@ use crate::{
     response::{CreateResponse, DeleteResponse},
 };
 
-use crate::models::{Opt, Question, QuestionType};
+use crate::models::{Answer, Opt, Question, QuestionType};
 use crate::response::List;
 use crate::serde::{Deserialize, Serialize};
 use crate::sqlx::{query, query_as, query_scalar, FromRow, PgPool};
@@ -20,11 +20,6 @@ pub struct QuestionInsertion {
 pub struct CreateRequest {
     pub question: QuestionInsertion,
     pub options: Vec<String>,
-}
-
-#[derive(Debug)]
-pub struct UserID {
-    id: i32,
 }
 
 pub async fn create(
@@ -71,7 +66,7 @@ pub async fn create(
         .execute(&mut tx)
         .await?;
     tx.commit().await?;
-    return Ok(Json(CreateResponse { id }));
+    Ok(Json(CreateResponse { id }))
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -165,7 +160,7 @@ pub async fn detail(user_info: UserInfo, qst_id: Path<(i32,)>, db: Data<PgPool>)
         id: qst.id,
         description: qst.description,
         type_: qst.type_,
-        opts: opts,
+        opts,
     }))
 }
 
@@ -264,7 +259,18 @@ pub async fn questions_with_options_by_vote_id(user_info: UserInfo, vote_id: Pat
                 question_id: q.question_id,
             }],
         });
-        return l;
+        l
     });
     Ok(Json(List::new(list, total)))
 }
+
+pub struct QuestionWithOptionsAndAnswers {
+    id: i32,
+    description: String,
+    type_: QuestionType,
+    version: i32,
+    options: Vec<Opt>,
+    answers: Vec<Answer>,
+}
+
+pub async fn question_with_options_and_answers(user_info: UserInfo, question_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<Vec<QuestionWithOptionsAndAnswers>>, Error> {}

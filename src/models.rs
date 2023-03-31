@@ -176,12 +176,6 @@ pub struct DateInsertion {
     pub vote_id: i32,
 }
 
-#[derive(Debug, Clone)]
-pub struct InviteCode {
-    id: i32,
-    code: String,
-}
-
 #[derive(Debug)]
 pub struct VoteReadMarkInsertion {
     pub vote_id: i32,
