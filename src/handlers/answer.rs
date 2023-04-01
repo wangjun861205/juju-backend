@@ -8,36 +8,14 @@ use crate::actix_web::{
 };
 use crate::context::UserInfo;
 use crate::error::Error;
-use crate::models::QuestionType;
+use crate::models::question::QuestionType;
 use crate::serde::Serialize;
 use crate::sqlx::{query, query_as, FromRow, PgPool, QueryBuilder};
 
 pub async fn submit_answer(user_info: UserInfo, qst_id: Path<(i32,)>, Json(answer): Json<Vec<i32>>, db: Data<PgPool>) -> Result<HttpResponse, Error> {
     let mut tx = db.begin().await?;
     let qst_id = qst_id.into_inner().0;
-    let (is_vote_valid,): (bool,) = query_as(
-        r#"
-    WITH now AS (SELECT now())
-    SELECT EXISTS(
-        SELECT *
-        FROM options AS op
-        JOIN questions AS q ON op.question_id = q.id
-        JOIN votes AS v ON q.vote_id = v.id
-        JOIN organizations AS og ON v.organization_id = og.id
-        JOIN users_organizations AS uo ON o.id = uo.organization_id
-        WHERE q.id = $1
-        AND (v.deadline IS NULL OR v.deatline > now)
-        AND u.id = $2
-    )"#,
-    )
-    .bind(qst_id)
-    .bind(user_info.id)
-    .fetch_one(&mut tx)
-    .await?;
-    if !is_vote_valid {
-        return Err(Error::BusinessError("vote not exists or invalid vote status".into()));
-    }
-    let (is_answer_valid,): (bool,) = query_as(
+    let is_answer_valid: bool = query_scalar(
         r#"select (ids @> $1) as is_valid from (
                 select q.id, array_agg(o.id) as ids
                 from questions as q join options as o on q.id = o.question_id
@@ -53,19 +31,18 @@ pub async fn submit_answer(user_info: UserInfo, qst_id: Path<(i32,)>, Json(answe
         return Err(Error::BusinessError("invalid answer".into()));
     }
     query(
-        r#"
-    DELETE answers WHERE id IN (
-        SELECT a.id 
-        FROM questions AS q
-        JOIN options AS o ON q.id = options.question_id
-        JOIN answers AS a ON o.id = a.option_id
-        WHERE q.id = $1)"#,
+        "DELETE FROM answers WHERE id IN (
+            SELECT a.id 
+            FROM questions AS q
+            JOIN options AS o ON q.id = o.question_id
+            JOIN answers AS a ON o.id = a.option_id
+            WHERE q.id = $1)",
     )
     .bind(qst_id)
     .execute(&mut tx)
     .await?;
-    QueryBuilder::new(r#"INSERT INTO answers (user_id, option_id)"#)
-        .push_tuples(answer.into_iter(), |mut b, a| {
+    QueryBuilder::new("INSERT INTO answers (user_id, option_id)")
+        .push_values(answer.into_iter(), |mut b, a| {
             b.push_bind(user_info.id);
             b.push_bind(a);
         })
@@ -94,7 +71,7 @@ pub async fn answer_list(user_info: UserInfo, qst_id: Path<(i32,)>, db: Data<PgP
     let qst_id = qst_id.into_inner().0;
     let (question_type,): (QuestionType,) = query_as(
         r#"
-    SELECT q.type
+    SELECT q.type_
     FROM users AS u
     JOIN users_organizations AS uo ON u.id = uo.user_id
     JOIN organizations AS o ON uo.organization_id = o.id
@@ -184,45 +161,4 @@ pub async fn submit_answers(db: Data<PgPool>, user_info: UserInfo, vote_id: Path
         .await?;
     tx.commit().await?;
     Ok(HttpResponse::build(StatusCode::CREATED).finish())
-}
-
-type SubmittedAnswer = SubmitAnswer;
-
-pub async fn answers(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<Vec<SubmittedAnswer>>, Error> {
-    let vote_id = vote_id.into_inner().0;
-    let answers: Vec<(i32, Option<i32>)> = query_as(
-        "
-    SELECT
-        q.id AS question_id,
-        a.option_id AS option_id
-    FROM users AS u
-    JOIN users_organizations AS uo ON u.id = uo.user_id
-    JOIN votes AS v ON uo.organization_id = v.organization_id
-    JOIN questions AS q ON v.id = q.vote_id
-    LEFT JOIN answers AS a ON a.question_id = q.id AND a.user_id = u.id
-    WHERE u.id = $1 AND v.id = $2
-    ORDER BY question_id",
-    )
-    .bind(user_info.id)
-    .bind(vote_id)
-    .fetch_all(&mut db.acquire().await?)
-    .await?;
-    let res = answers.into_iter().fold(Vec::<SubmittedAnswer>::new(), |mut l, (qid, oid)| {
-        if let Some(mut last) = l.pop() {
-            if last.question_id == qid {
-                if let Some(oid) = oid {
-                    last.option_ids.push(oid);
-                }
-                l.push(last);
-                return l;
-            }
-            l.push(last);
-        }
-        l.push(SubmittedAnswer {
-            question_id: qid,
-            option_ids: if let Some(oid) = oid { vec![oid] } else { Vec::new() },
-        });
-        l
-    });
-    Ok(Json(res))
 }

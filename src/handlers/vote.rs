@@ -1,12 +1,15 @@
 use sqlx::{query, query_as, FromRow, QueryBuilder};
 
-use crate::actix_web::web::{Data, Json, Path, Query};
+use crate::actix_web::web::{Data, Json, Path};
 
 use crate::chrono::{DateTime, NaiveDate, Utc};
 use crate::context::UserInfo;
 use crate::error::Error;
-use crate::models::{Date, Question, Vote, VoteStatus};
-use crate::request::Pagination;
+use crate::models::{
+    date::Date,
+    question::{Question, QuestionWithStatuses},
+    vote::{Vote, VoteWithStatuses},
+};
 use crate::response::{CreateResponse, DeleteResponse, List, UpdateResponse};
 use crate::serde::{Deserialize, Serialize};
 use crate::sqlx::PgPool;
@@ -121,73 +124,18 @@ struct VoteDetail {
     questions: Vec<Question>,
 }
 
-pub async fn list(user_info: UserInfo, param: Query<Pagination>, org_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<List<Item>>, Error> {
-    let org_id = org_id.into_inner().0;
-    let mut tx = db.begin().await?;
-    let (total,): (i64,) = query_as(
-        "
-    SELECT COUNT(*)
-    FROM users AS u
-    JOIN users_organizations AS uo ON u.id = uo.user_id
-    JOIN organizations AS o ON uo.organization_id = o.id
-    JOIN votes AS v ON o.id = v.organization_id
-    WHERE u.id = $1
-    AND o.id = $2",
-    )
-    .bind(user_info.id)
-    .bind(org_id)
-    .fetch_one(&mut tx)
-    .await?;
-    let votes: Vec<Item> = query_as(
-        "
-    SELECT 
-        v.id, 
-        v.name, 
-        v.deadline, 
-        v.version,
-        CASE WHEN v.deadline <= NOW() THEN 'Active' ELSE 'Expired' END AS status,
-        SUM(v.version) > SUM(vrm.version) OR SUM(COALESCE(q.version, 0)) > SUM(COALESCE(qrm.version, 0)) AS has_updated
-    FROM users AS u
-    JOIN users_organizations AS uo ON u.id = uo.user_id
-    JOIN organizations AS o ON uo.organization_id = o.id
-    JOIN votes AS v ON o.id = v.organization_id
-    JOIN vote_read_marks AS vrm ON v.id = vrm.vote_id AND u.id = vrm.user_id
-    LEFT JOIN questions AS q ON v.id = q.vote_id
-    LEFT JOIN question_read_marks AS qrm ON q.id = qrm.question_id AND u.id = qrm.user_id
-    WHERE u.id = $1
-    AND o.id = $2
-    GROUP BY v.id, v.name, v.deadline, v.version, status
-    LIMIT $3
-    OFFSET $4",
-    )
-    .bind(user_info.id)
-    .bind(org_id)
-    .bind(param.size)
-    .bind((param.page - 1) * param.size)
-    .fetch_all(&mut tx)
-    .await?;
-    Ok(Json(List::new(votes, total)))
-}
-
-#[derive(Debug, Serialize)]
-pub struct Detail {
-    id: i32,
-    name: String,
-    deadline: Option<NaiveDate>,
-    status: VoteStatus,
-}
-
-pub async fn detail(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<Detail>, Error> {
+pub async fn detail(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<VoteWithStatuses>, Error> {
     let vote_id = vote_id.into_inner().0;
     let mut tx = db.begin().await?;
-    let vote: Vote = query_as(
+    let vote: VoteWithStatuses = query_as(
         "
-    SELECT v.*
-    FROM users AS u
-    JOIN users_organizations AS uo ON u.id = uo.user_id
-    JOIN organizations AS o ON uo.organization_id = o.id
-    JOIN votes AS v ON o.id = v.organization_id
-    WHERE u.id = $1
+    SELECT 
+        v.*,
+        CASE WHEN v.deadline < current_date THEN 'EXPIRED' ELSE 'COLLECTING' END AS status,
+        v.version > vrm.version AS has_updated
+    FROM votes AS v 
+    JOIN vote_read_marks AS vrm ON v.id = vrm.vote_id
+    WHERE vrm.user_id = $1
     AND v.id = $2
     FOR SHARE",
     )
@@ -204,20 +152,8 @@ pub async fn detail(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<PgPool>
     .bind(vote_id)
     .execute(&mut tx)
     .await?;
-    Ok(Json(Detail {
-        id: vote.id,
-        name: vote.name,
-        deadline: vote.deadline.clone(),
-        status: if let Some(dl) = &vote.deadline {
-            if dl < &Utc::now().date_naive() {
-                VoteStatus::Closed
-            } else {
-                VoteStatus::Collecting
-            }
-        } else {
-            VoteStatus::Collecting
-        },
-    }))
+    tx.commit().await?;
+    Ok(Json(vote))
 }
 
 #[derive(Debug, Clone, Serialize, FromRow)]
@@ -306,4 +242,42 @@ pub async fn question_ids(vote_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Jso
     let vid = vote_id.into_inner().0;
     let ids: Vec<(i32,)> = query_as("SELECT id FROM questions WHERE vote_id = $1").bind(vid).fetch_all(&mut db.acquire().await?).await?;
     Ok(Json(ids.into_iter().map(|v| v.0).collect()))
+}
+
+pub async fn questions(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<List<QuestionWithStatuses>>, Error> {
+    let vote_id = vote_id.into_inner().0;
+    let mut conn = db.acquire().await?;
+    let (total,): (i64,) = query_as(
+        "
+    SELECT COUNT(DISTINCT q.id)
+    FROM votes AS v
+    JOIN questions AS q ON v.id = q.vote_id
+    WHERE v.id = $1",
+    )
+    .bind(vote_id)
+    .fetch_one(&mut conn)
+    .await?;
+    let list = query_as(
+        "
+        SELECT 
+            q.id, 
+            q.description, 
+            q.type_, 
+            q.version, 
+            q.vote_id,
+            COUNT(distinct a.id) > 0 AS has_answered, 
+            q.version > SUM(qrm.version) AS has_updated
+        FROM votes AS v
+        JOIN questions AS q ON v.id = q.vote_id
+        JOIN question_read_marks AS qrm ON q.id = qrm.question_id AND qrm.user_id = $1
+        LEFT JOIN options AS op ON q.id = op.question_id
+        LEFT JOIN answers AS a ON op.id = a.option_id AND a.user_id = $1
+        WHERE v.id = $2
+        GROUP BY q.id, q.description, q.type_, q.version, q.vote_id",
+    )
+    .bind(user_info.id)
+    .bind(vote_id)
+    .fetch_all(&mut conn)
+    .await?;
+    Ok(Json(List::new(list, total)))
 }

@@ -1,10 +1,10 @@
-use sqlx::{query, query_as, FromRow, PgPool, QueryBuilder};
+use sqlx::{query, query_as, query_scalar, FromRow, PgPool, QueryBuilder};
 
 use crate::actix_web::web::{Data, Json, Path, Query};
 use crate::context::UserInfo;
 use crate::error::Error;
 use crate::handlers::user::User;
-use crate::models::Organization;
+use crate::models::{organization::Organization, vote::VoteWithStatuses};
 use crate::request::Pagination;
 use crate::response::{CreateResponse, DeleteResponse, UpdateResponse};
 use crate::serde::{Deserialize, Serialize};
@@ -264,4 +264,40 @@ pub async fn users<T: Authorizer>(me: UserInfo, org_id: Path<(i32,)>, db: Data<P
     .fetch_all(&mut conn)
     .await?;
     Ok(Json(List::new(list, total)))
+}
+
+pub async fn votes(user_info: UserInfo, param: Query<Pagination>, org_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<List<VoteWithStatuses>>, Error> {
+    let org_id = org_id.into_inner().0;
+    let mut tx = db.begin().await?;
+    let total: i64 = query_scalar(
+        "
+    SELECT COUNT(*)
+    FROM organizations AS o
+    JOIN votes AS v ON o.id = v.organization_id
+    WHERE o.id = $1",
+    )
+    .bind(org_id)
+    .fetch_one(&mut tx)
+    .await?;
+    let votes: Vec<VoteWithStatuses> = query_as(
+        "
+    SELECT 
+        v.*,
+        CASE WHEN v.deadline <= NOW() THEN 'Expired' ELSE 'Active' END AS status,
+        v.version > vrm.version AS has_updated
+    FROM organizations AS o
+    JOIN votes AS v ON o.id = v.organization_id
+    JOIN vote_read_marks AS vrm ON v.id = vrm.vote_id
+    WHERE vrm.id = $1
+    AND o.id = $2
+    LIMIT $3
+    OFFSET $4",
+    )
+    .bind(user_info.id)
+    .bind(org_id)
+    .bind(param.size)
+    .bind((param.page - 1) * param.size)
+    .fetch_all(&mut tx)
+    .await?;
+    Ok(Json(List::new(votes, total)))
 }

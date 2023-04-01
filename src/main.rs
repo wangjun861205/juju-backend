@@ -27,7 +27,7 @@ mod authorizer;
 mod context;
 mod error;
 mod handlers;
-mod middleware;
+mod middlewares;
 pub mod models;
 pub mod privilege;
 pub mod request;
@@ -37,8 +37,8 @@ mod storer;
 use actix_web::web::{delete, get, post, put, resource, scope, Data};
 use actix_web::HttpServer;
 use authorizer::PgAuthorizer;
-use middleware::authorizer::Author;
-use middleware::jwt::Jwt;
+use middlewares::authorizer::Author;
+use middlewares::jwt::Jwt;
 use sqlx::postgres::PgPoolOptions;
 
 #[derive(Debug, Clone)]
@@ -88,7 +88,10 @@ async fn main() -> Result<(), std::io::Error> {
                                             .route("", get().to(handlers::organization::detail))
                                             .route("", put().to(handlers::organization::update))
                                             .route("", delete().to(handlers::organization::delete_organization))
-                                            .service(scope("votes").route("", post().to(handlers::vote::create)).route("", get().to(handlers::vote::list)))
+                                            .service(
+                                                scope("votes")
+                                                .route("", post().to(handlers::vote::create))
+                                                .route("", get().to(handlers::organization::votes)))
                                             .service(
                                                 scope("users")
                                                     .route("", post().to(handlers::organization::add_users))
@@ -122,10 +125,9 @@ async fn main() -> Result<(), std::io::Error> {
                                         .service(
                                             scope("questions")
                                                 .route("", post().to(handlers::question::create))
-                                                .route("", get().to(handlers::question::list))
+                                                .route("", get().to(handlers::vote::questions))
                                                 .route("report", get().to(handlers::vote::question_reports)),
                                         )
-                                        .service(scope("answers").route("", post().to(handlers::answer::submit_answers)).route("", get().to(handlers::answer::answers))),
                                 ),
                             )
                             .service(
@@ -138,8 +140,16 @@ async fn main() -> Result<(), std::io::Error> {
                                         ))
                                         .route("", get().to(handlers::question::detail))
                                         .route("", delete().to(handlers::question::delete))
-                                        .service(scope("options").route("", post().to(handlers::option::add_opts)).route("", get().to(handlers::option::list)))
-                                        .service(scope("answers").route("", get().to(handlers::answer::answer_list)).route("", put().to(handlers::answer::submit_answer))),
+                                        .service(
+                                            scope("options")
+                                            .route("", post().to(handlers::option::add_opts))
+                                            .route("", get().to(handlers::question::options))
+                                        )
+                                        .service(
+                                            scope("answers")
+                                            .route("", get().to(handlers::question::answers))
+                                            .route("", put().to(handlers::answer::submit_answer))
+                                        ),
                                 ),
                             )
                             .service(scope("users").route("", get().to(handlers::user::list))),

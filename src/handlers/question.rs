@@ -5,7 +5,10 @@ use crate::{
     response::{CreateResponse, DeleteResponse},
 };
 
-use crate::models::{Answer, Opt, Question, QuestionType};
+use crate::models::{
+    option::Opt,
+    question::{Question, QuestionType},
+};
 use crate::response::List;
 use crate::serde::{Deserialize, Serialize};
 use crate::sqlx::{query, query_as, query_scalar, FromRow, PgPool};
@@ -77,46 +80,6 @@ pub struct Item {
     version: i64,
     has_answered: bool,
     has_updated: bool,
-}
-
-pub async fn list(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<List<Item>>, Error> {
-    let vote_id = vote_id.into_inner().0;
-    let mut conn = db.acquire().await?;
-    let (total,): (i64,) = query_as(
-        "
-    SELECT COUNT(DISTINCT q.id)
-    FROM users AS u
-    JOIN users_organizations AS uo ON u.id = uo.user_id
-    JOIN organizations AS o ON uo.organization_id = o.id
-    JOIN votes AS v ON o.id = v.organization_id
-    JOIN questions AS q ON v.id = q.vote_id
-    WHERE u.id = $1
-    AND v.id = $2",
-    )
-    .bind(user_info.id)
-    .bind(vote_id)
-    .fetch_one(&mut conn)
-    .await?;
-    let list = query_as(
-        "
-        SELECT q.id, q.description, q.type_, q.version, COUNT(distinct a.id) > 0 AS has_answered, q.version > SUM(qrm.version) AS has_updated
-        FROM users AS u
-        JOIN users_organizations AS uo ON u.id = uo.user_id
-        JOIN organizations AS o ON uo.organization_id = o.id
-        JOIN votes AS v ON o.id = v.organization_id
-        JOIN questions AS q ON v.id = q.vote_id
-        LEFT JOIN options AS op ON q.id = op.question_id
-        LEFT JOIN answers AS a ON op.id = a.option_id AND u.id = a.user_id
-        JOIN question_read_marks AS qrm ON q.id = qrm.question_id AND u.id = qrm.user_id
-        WHERE u.id = $1
-        AND v.id = $2
-        GROUP BY q.id, q.description, q.type_, q.version",
-    )
-    .bind(user_info.id)
-    .bind(vote_id)
-    .fetch_all(&mut conn)
-    .await?;
-    Ok(Json(List::new(list, total)))
 }
 
 #[derive(Debug, Serialize)]
@@ -262,4 +225,34 @@ pub async fn questions_with_options_by_vote_id(user_info: UserInfo, vote_id: Pat
         l
     });
     Ok(Json(List::new(list, total)))
+}
+
+pub async fn answers(user_info: UserInfo, question_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<Vec<i32>>, Error> {
+    let question_id = question_id.into_inner().0;
+    let answers: Vec<(Option<i32>,)> = query_as(
+        "
+    SELECT
+        a.option_id AS option_id
+    FROM users AS u
+    JOIN users_organizations AS uo ON u.id = uo.user_id
+    JOIN votes AS v ON uo.organization_id = v.organization_id
+    JOIN questions AS q ON v.id = q.vote_id
+    JOIN options AS o ON q.id = o.question_id
+    LEFT JOIN answers AS a ON a.user_id = u.id AND o.id = a.option_id
+    WHERE u.id = $1 AND q.id = $2",
+    )
+    .bind(user_info.id)
+    .bind(question_id)
+    .fetch_all(&mut db.acquire().await?)
+    .await?;
+    let res = answers.into_iter().filter_map(|a| a.0.map(|id| id)).collect();
+    Ok(Json(res))
+}
+
+pub async fn options(question_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<Vec<Opt>>, Error> {
+    let res = query_as("SELECT * FROM options WHERE question_id = $1")
+        .bind(question_id.into_inner().0)
+        .fetch_all(&mut db.acquire().await?)
+        .await?;
+    Ok(Json(res))
 }
