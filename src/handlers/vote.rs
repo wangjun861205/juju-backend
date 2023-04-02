@@ -281,3 +281,14 @@ pub async fn questions(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<PgPo
     .await?;
     Ok(Json(List::new(list, total)))
 }
+
+// SELECT
+//     v.id,
+//     v.name,
+//     v.version > vrm.version,
+//     bool_or(q.version > qrm.version)
+// FROM votes AS v
+// JOIN vote_read_marks AS vrm ON v.id = vrm.vote_id
+// JOIN questions AS q ON v.id = q.vote_id
+// JOIN question_read_marks AS qrm ON q.id = qrm.question_id
+// GROUP BY v.id, v.name, v.version > vrm.version

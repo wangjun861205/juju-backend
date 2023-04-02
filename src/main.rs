@@ -152,6 +152,24 @@ async fn main() -> Result<(), std::io::Error> {
                                         ),
                                 ),
                             )
+                            .service(
+                                scope("options")
+                                .service(
+                                    scope("{option_id}")
+                                    .wrap(Author::new(
+                                        pool.clone(),
+                                        "SELECT EXISTS(
+                                            SELECT uo.id
+                                            FROM users_organizations AS uo
+                                            JOIN votes AS v ON uo.organization_id = v.organization_id
+                                            JOIN questions AS q ON v.id = q.vote_id
+                                            JOIN options AS o ON q.id = o.question_id
+                                            WHERE uo.user_id = $1 AND o.id = $2)",
+                                        "option_id"
+                                    ))
+                                    .route("", delete().to(handlers::option::delete))
+                                )
+                            )
                             .service(scope("users").route("", get().to(handlers::user::list))),
                     ),
             )

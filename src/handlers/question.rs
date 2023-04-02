@@ -1,3 +1,5 @@
+use sqlx::QueryBuilder;
+
 use crate::context::UserInfo;
 use crate::error::Error;
 use crate::{
@@ -15,54 +17,34 @@ use crate::sqlx::{query, query_as, query_scalar, FromRow, PgPool};
 
 #[derive(Debug, Deserialize)]
 pub struct QuestionInsertion {
-    description: String,
-    type_: QuestionType,
+    pub description: String,
+    pub type_: QuestionType,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct CreateRequest {
-    pub question: QuestionInsertion,
+    pub description: String,
+    pub type_: QuestionType,
     pub options: Vec<String>,
 }
 
-pub async fn create(
-    user_info: UserInfo,
-    vote_id: Path<(i32,)>,
-    Json(CreateRequest {
-        question: QuestionInsertion { description, type_ },
-        options,
-    }): Json<CreateRequest>,
-    db: Data<PgPool>,
-) -> Result<Json<CreateResponse>, Error> {
+pub async fn create(user_info: UserInfo, vote_id: Path<(i32,)>, Json(CreateRequest { description, type_, options }): Json<CreateRequest>, db: Data<PgPool>) -> Result<Json<CreateResponse>, Error> {
     let vote_id = vote_id.into_inner().0;
     let mut tx = db.begin().await?;
-    let (exists,): (bool,) = query_as(
-        "
-        SELECT EXISTS(
-            SELECT *
-            FROM users_organizations AS uo
-            JOIN organizations AS o ON uo.organization_id = o.id
-            JOIN votes AS v ON o.id = v.organization_id
-            WHERE uo.user_id = $1
-            AND v.id = $2)",
-    )
-    .bind(user_info.id)
-    .bind(vote_id)
-    .fetch_one(&mut tx)
-    .await?;
-    if !exists {
-        return Err(Error::BusinessError("irrelative vote or vote not exists".into()));
-    }
-    let (id,): (i32,) = query_as("INSERT INTO questions (description, type_, vote_id, version) VALUES ($1, $2, $3, 1) RETURNING id")
+    let id: i32 = query_scalar("INSERT INTO questions (description, type_, vote_id, version) VALUES ($1, $2, $3, 1) RETURNING id")
         .bind(description)
         .bind(type_)
         .bind(vote_id)
         .fetch_one(&mut tx)
         .await?;
-    for opt in options {
-        query("INSERT INTO options (question_id, option) VALUES ($1, $2)").bind(id).bind(opt).execute(&mut tx).await?;
-    }
-
+    QueryBuilder::new("INSERT INTO options (question_id, option)")
+        .push_values(options, |mut s, o| {
+            s.push_bind(id);
+            s.push_bind(o);
+        })
+        .build()
+        .execute(&mut tx)
+        .await?;
     query("INSERT INTO question_read_marks (question_id, user_id, version) VALUES ($1, $2, 1)")
         .bind(id)
         .bind(user_info.id)
