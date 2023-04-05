@@ -1,5 +1,5 @@
 use actix_web::web::Data;
-use sqlx::{query_as, FromRow, PgPool, QueryBuilder};
+use sqlx::{query_as, query_scalar, FromRow, PgPool, QueryBuilder};
 
 use crate::actix_web::web::{Json, Query};
 use crate::context::UserInfo;
@@ -23,57 +23,35 @@ pub struct FindUserParams {
 
 pub async fn find(Query(FindUserParams { phone, exclude_org_id, page, size }): Query<FindUserParams>, db: Data<PgPool>) -> Result<Json<List<User>>, Error> {
     let mut conn = db.acquire().await?;
-    let total: i64;
-    let list: Vec<User>;
-    if let Some(org_id) = exclude_org_id {
-        (total,) = query_as(
-            "
-        SELECT COUNT(DISTINCT u.id)
+    let total = query_scalar(
+        "SELECT COUNT(DISTINCT u.id)
         FROM users AS u
         LEFT JOIN users_organizations AS uo ON u.id = uo.user_id
         LEFT JOIN organizations AS o ON uo.organization_id = o.id
-        WHERE u.phone LIKE '%$1%'
-        AND (o.id <> $2 OR o.id IS NULL)",
-        )
-        .bind(&phone)
-        .bind(org_id)
-        .fetch_one(&mut conn)
-        .await?;
-        list = query_as(
-            "
-        SELECT DISTINCT u.id, u.nickname
+        WHERE u.phone LIKE $1
+        AND ($2 IS NULL OR o.id IS NULL OR o.id != $2)",
+    )
+    .bind(format!("%{}%", &phone))
+    .bind(exclude_org_id)
+    .fetch_one(&mut conn)
+    .await?;
+    let list = query_as(
+        "SELECT DISTINCT u.id, u.nickname
         FROM users AS u
         LEFT JOIN users_organizations AS uo ON u.id = uo.user_id
         LEFT JOIN organizations AS o ON uo.organization_id = o.id
-        WHERE u.phone LIKE '%$1%'
-        AND (o.id <> $2 OR o.id IS NULL)
+        WHERE u.phone LIKE $1
+        AND ($2 IS NULL OR o.id IS NULL OR o.id != $2)
         LIMIT $3
         OFFSET $4",
-        )
-        .bind(&phone)
-        .bind(org_id)
-        .bind(size)
-        .bind((page - 1) * size)
-        .fetch_all(&mut conn)
-        .await?;
-    } else {
-        (total,) = query_as(
-            "
-        SELECT COUNT(*) FROM users WHERE phone LIKE '%$1%'",
-        )
-        .bind(&phone)
-        .fetch_one(&mut conn)
-        .await?;
-        list = query_as(
-            "
-        SELECT id, nickname FROM users WHERE phone LIKE '%$1%' LIMIT $2 OFFSET $3",
-        )
-        .bind(&phone)
-        .bind(size)
-        .bind((page - 1) * size)
-        .fetch_all(&mut conn)
-        .await?;
-    }
+    )
+    .bind(format!("%{}%", &phone))
+    .bind(exclude_org_id)
+    .bind(size)
+    .bind((page - 1) * size)
+    .fetch_all(&mut conn)
+    .await?;
+
     Ok(Json(List::new(list, total)))
 }
 

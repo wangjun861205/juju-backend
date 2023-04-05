@@ -34,7 +34,7 @@ pub mod request;
 pub mod response;
 mod storer;
 
-use actix_web::web::{delete, get, post, put, resource, scope, Data};
+use actix_web::web::{delete, get, post, put, scope, Data};
 use actix_web::HttpServer;
 use authorizer::PgAuthorizer;
 use middlewares::authorizer::Author;
@@ -64,8 +64,9 @@ async fn main() -> Result<(), std::io::Error> {
             .app_data(Data::new(UploadPath(upload_path.clone())))
             .service(
                 scope("")
-                    .service(resource("login").route(post().to(handlers::login)))
-                    .service(resource("signup").route(post().to(handlers::signup)))
+                    .route("login", post().to(handlers::login))
+                    .route("signup", post().to(handlers::signup))
+                    .route("logout", get().to(handlers::logout))
                     .service(
                         scope("")
                         .wrap(Jwt {})
@@ -76,7 +77,7 @@ async fn main() -> Result<(), std::io::Error> {
                             )
                             .service(
                                 scope("organizations")
-                                    .route("", get().to(handlers::organization::list))
+                                    .route("", get().to(handlers::organization::search))
                                     .route("", post().to(handlers::organization::create))
                                     .service(
                                         scope("{organization_id}")
@@ -170,7 +171,11 @@ async fn main() -> Result<(), std::io::Error> {
                                     .route("", delete().to(handlers::option::delete))
                                 )
                             )
-                            .service(scope("users").route("", get().to(handlers::user::list))),
+                            .service(scope("users").route("", get().to(handlers::user::find)))
+                            .service(
+                                scope("my")
+                                .route("organizations", get().to(handlers::organization::my_organizations))
+                            )
                     ),
             )
     })

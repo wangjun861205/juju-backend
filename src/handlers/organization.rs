@@ -74,7 +74,7 @@ pub struct Item {
     has_new_vote: bool,
 }
 
-pub async fn list(user_info: UserInfo, Query(Pagination { page, size }): Query<Pagination>, db: Data<PgPool>) -> Result<Json<List<Item>>, Error> {
+pub async fn my_organizations(user_info: UserInfo, Query(Pagination { page, size }): Query<Pagination>, db: Data<PgPool>) -> Result<Json<List<Item>>, Error> {
     let mut tx = db.begin().await?;
     let (total,): (i64,) = query_as(
         "
@@ -300,4 +300,44 @@ pub async fn votes(user_info: UserInfo, param: Query<Pagination>, org_id: Path<(
     .fetch_all(&mut tx)
     .await?;
     Ok(Json(List::new(votes, total)))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SearchParams {
+    pub keyword: String,
+    pub page: i32,
+    pub size: i32,
+}
+
+pub async fn search(user_info: UserInfo, Query(SearchParams { keyword, page, size }): Query<SearchParams>, db: Data<PgPool>) -> Result<Json<List<Organization>>, Error> {
+    let mut conn = db.acquire().await?;
+    let total = query_scalar(
+        "
+    SELECT COUNT(o.id)
+    FROM organizations AS o
+    LEFT JOIN (SELECT organization_id FROM users_organizations WHERE user_id = $1) AS uo ON o.id = uo.organization_id
+    WHERE uo.organization_id IS NULL
+    AND o.name LIKE $2",
+    )
+    .bind(user_info.id)
+    .bind(format!("%{}%", &keyword))
+    .fetch_one(&mut conn)
+    .await?;
+    let orgs = query_as(
+        "
+    SELECT o.*
+    FROM organizations AS o
+    LEFT JOIN (SELECT organization_id FROM users_organizations WHERE user_id = $1) AS uo ON o.id = uo.organization_id
+    WHERE uo.organization_id IS NULL
+    AND o.name LIKE $2
+    LIMIT $3
+    OFFSET $4",
+    )
+    .bind(user_info.id)
+    .bind(format!("%{}%", &keyword))
+    .bind(size)
+    .bind((page - 1) * size)
+    .fetch_all(&mut conn)
+    .await?;
+    Ok(Json(List::new(orgs, total)))
 }

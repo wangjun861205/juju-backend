@@ -8,7 +8,11 @@ pub mod upload;
 pub mod user;
 pub mod vote;
 
-use actix_web::http::StatusCode;
+use actix_web::{
+    cookie::{time::OffsetDateTime, CookieBuilder},
+    http::StatusCode,
+    HttpResponseBuilder,
+};
 use rand::Rng;
 use sqlx::{query, query_as, PgPool};
 use std::ops::Add;
@@ -120,4 +124,10 @@ pub async fn signup(
         .await?;
     tx.commit().await?;
     Ok(HttpResponse::build(StatusCode::OK).finish())
+}
+
+pub async fn logout() -> HttpResponse {
+    HttpResponseBuilder::new(StatusCode::OK)
+        .cookie(CookieBuilder::new(JWT_TOKEN, "").expires(OffsetDateTime::now_utc()).finish())
+        .finish()
 }

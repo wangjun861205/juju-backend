@@ -1,3 +1,4 @@
+use actix_web::cookie::time::error::{ComponentRange, IndeterminateOffset};
 use actix_web::ResponseError;
 
 use crate::actix_multipart::MultipartError;
@@ -45,6 +46,12 @@ pub enum Error {
 
     #[error("io error")]
     IOError(#[from] IOError),
+
+    #[error("indeterminate offset: {0}")]
+    IndeterminateOffset(#[from] IndeterminateOffset),
+
+    #[error("component range: {0}")]
+    ComponentRange(#[from] ComponentRange),
 }
 
 impl ResponseError for Error {}
