@@ -1,3 +1,4 @@
+use actix_web::HttpResponse;
 use sqlx::{query, query_as, query_scalar, FromRow, PgPool, QueryBuilder};
 
 use crate::actix_web::web::{Data, Json, Path, Query};
@@ -139,6 +140,11 @@ pub async fn create(user_info: UserInfo, Json(OrganizationCreation { name }): Js
         .bind(id)
         .execute(&mut tx)
         .await?;
+    query("INSERT INTO organization_managers (user_id, organization_id) VALUES ($1, $2)")
+        .bind(user_info.id)
+        .bind(id)
+        .execute(&mut tx)
+        .await?;
     query("INSERT INTO organization_read_marks (organization_id, user_id, version) VALUES ($1, $2, 1)")
         .bind(id)
         .bind(user_info.id)
@@ -231,6 +237,30 @@ pub async fn add_users(user_info: UserInfo, org_id: Path<(i32,)>, Json(user_ids)
         .await?;
     }
     Ok(Json(()))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AddManager {
+    user_id: i32,
+    organization_id: i32,
+}
+
+pub async fn add_manager(Json(AddManager { user_id, organization_id }): Json<AddManager>, db: Data<PgPool>) -> Result<HttpResponse, Error> {
+    let mut tx = db.begin().await?;
+    if query_scalar("SELECT EXISTS(SELECT * FROM organization_managers WHERE user_id = $1 AND organization_id = $2)")
+        .bind(user_id)
+        .bind(organization_id)
+        .fetch_one(&mut tx)
+        .await?
+    {
+        return Ok(HttpResponse::Ok().finish());
+    }
+    query("INSERT INTO organization_managers (user_id, organization_id) VALUES ($1, $2)")
+        .bind(user_id)
+        .bind(organization_id)
+        .execute(&mut tx)
+        .await?;
+    Ok(HttpResponse::Ok().finish())
 }
 
 // list all users which belongs to one organization

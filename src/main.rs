@@ -97,7 +97,16 @@ async fn main() -> Result<(), std::io::Error> {
                                                 scope("users")
                                                     .route("", post().to(handlers::organization::add_users))
                                                     .route("", get().to(handlers::organization::users::<PgAuthorizer>)),
-                                            ),
+                                            )
+                                            .service(
+                                                scope("managers")
+                                                .wrap(
+                                                    Author::new(
+                                                        pool.clone(), 
+                                                        "SELECT EXISTS(SELECT id FROM organization_managers WHERE user_id = $1 AND organization_id = $2", 
+                                                        "organization_id"))
+                                                .route("", post().to(handlers::organization::add_manager))
+                                            )
                                     ),
                             )
                             .service(
