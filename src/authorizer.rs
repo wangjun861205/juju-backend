@@ -21,7 +21,7 @@ impl PgAuthorizer {
 impl Authorizer for PgAuthorizer {
     async fn check_organization_read(&self, uid: i32, org_id: i32) -> Result<bool, Error> {
         let mut conn = self.pool.acquire().await?;
-        let (is_exists,): (bool,) = query_as("SELECT EXISTS(SELECT * FROM users_organizations WHERE user_id = $1 AND organization_id = $2) AS exists")
+        let (is_exists,): (bool,) = query_as("SELECT EXISTS(SELECT * FROM organization_members WHERE user_id = $1 AND organization_id = $2) AS exists")
             .bind(uid)
             .bind(org_id)
             .fetch_one(&mut conn)
@@ -30,7 +30,7 @@ impl Authorizer for PgAuthorizer {
     }
     async fn check_organization_write(&self, uid: i32, org_id: i32) -> Result<bool, Error> {
         let mut conn = self.pool.acquire().await?;
-        let (is_exists,): (bool,) = query_as("SELECT EXISTS(SELECT * FROM users_organizations WHERE user_id = $1 AND organization_id = $2) AS exists")
+        let (is_exists,): (bool,) = query_as("SELECT EXISTS(SELECT * FROM organization_members WHERE user_id = $1 AND organization_id = $2) AS exists")
             .bind(uid)
             .bind(org_id)
             .fetch_one(&mut conn)
@@ -43,7 +43,7 @@ impl Authorizer for PgAuthorizer {
             r#"SELECT EXISTS(
                     SELECT * 
                     FROM users AS u
-                    JOIN users_organizations AS uo ON u.id = uo.user_id
+                    JOIN organization_members AS uo ON u.id = uo.user_id
                     JOIN organizations AS o ON uo.organization_id = o.id 
                     JOIN votes AS v on o.id = v.organization_id
                     WHERE u.id = $1 AND v.id = $2
@@ -62,7 +62,7 @@ impl Authorizer for PgAuthorizer {
             r#"SELECT EXISTS(
                     SELECT * 
                     FROM users AS u
-                    JOIN users_organizations AS uo ON u.id = uo.user_id
+                    JOIN organization_members AS uo ON u.id = uo.user_id
                     JOIN organizations AS o ON uo.organization_id = o.id 
                     JOIN votes AS v on o.id = v.organization_id
                     WHERE u.id = $1 AND v.id = $2
@@ -82,7 +82,7 @@ impl Authorizer for PgAuthorizer {
             SELECT EXISTS(
                 SELECT *
                 FROM users AS u
-                JOIN users_organizations AS uo ON u.id = uo.user_id
+                JOIN organization_members AS uo ON u.id = uo.user_id
                 JOIN organizations AS o ON uo.organization_id = o.id
                 JOIN votes AS v ON v.organization_id = o.id
                 JOIN questions AS q ON v.question_id = q.id
@@ -102,7 +102,7 @@ impl Authorizer for PgAuthorizer {
             SELECT EXISTS(
                 SELECT *
                 FROM users AS u
-                JOIN users_organizations AS uo ON u.id = uo.user_id
+                JOIN organization_members AS uo ON u.id = uo.user_id
                 JOIN organizations AS o ON uo.organization_id = o.id
                 JOIN votes AS v ON v.organization_id = o.id
                 JOIN questions AS q ON v.question_id = q.id

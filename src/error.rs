@@ -9,6 +9,7 @@ use crate::chrono;
 use crate::dotenv::Error as DotError;
 use crate::jsonwebtoken::errors::Error as JsonWebTokenError;
 use crate::thiserror::Error as ThisError;
+use std::fmt::{Debug, Display};
 use std::io::Error as IOError;
 use std::num;
 
@@ -52,6 +53,9 @@ pub enum Error {
 
     #[error("component range: {0}")]
     ComponentRange(#[from] ComponentRange),
+
+    #[error("other error")]
+    Other,
 }
 
 impl ResponseError for Error {}

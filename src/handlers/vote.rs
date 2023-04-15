@@ -28,7 +28,7 @@ pub async fn create(user_info: UserInfo, org_id: Path<(i32,)>, Json(body): Json<
     SELECT EXISTS(
         SELECT *
         FROM users AS u
-        JOIN users_organizations AS uo ON u.id = uo.user_id
+        JOIN organization_members AS uo ON u.id = uo.user_id
         JOIN organizations AS o ON uo.organization_id = o.id
         WHERE u.id = $1
         AND o.id = $2)",
@@ -51,7 +51,7 @@ pub async fn create(user_info: UserInfo, org_id: Path<(i32,)>, Json(body): Json<
         "
     SELECT u.id
     FROM users AS u
-    JOIN users_organizations AS uo ON u.id = uo.user_id
+    JOIN organization_members AS uo ON u.id = uo.user_id
     JOIN organizations AS o ON uo.organization_id = o.id
     WHERE o.id = $1",
     )
@@ -91,7 +91,7 @@ pub async fn update(user_info: UserInfo, vote_id: Path<(i32,)>, Json(VoteUpdatio
     AND id IN (
         SELECT v.id
         FROM users AS u
-        JOIN users_organizations AS uo ON u.id = uo.user_id
+        JOIN organization_members AS uo ON u.id = uo.user_id
         JOIN organizations AS o ON uo.organization_id = o.id
         JOIN votes AS v ON o.id = v.organization_id
         WHERE u.id = $4)
@@ -174,7 +174,7 @@ async fn gen_question_report(question_id: i32, db: &Data<PgPool>) -> Result<Ques
     let opts = query_as(
         r#"
     select o.option as option, (count(distinct a.id)::float / (count(distinct uo.user_id))::float * 10000)::int as percentage
-    from users_organizations as uo
+    from organization_members as uo
     join organizations as org on uo.organization_id = org.id
     join votes as v on org.id = v.organization_id
     join questions as q on v.id = q.vote_id
@@ -198,7 +198,7 @@ pub async fn question_reports(user_info: UserInfo, vote_id: Path<(i32,)>, db: Da
         "
     SELECT q.id
     FROM users AS u
-    JOIN users_organizations AS uo ON u.id = uo.user_id
+    JOIN organization_members AS uo ON u.id = uo.user_id
     JOIN organizations AS o ON uo.organization_id = o.id
     JOIN votes AS v ON o.id = v.organization_id
     JOIN questions AS q ON v.id = q.vote_id
@@ -226,7 +226,7 @@ pub async fn delete_vote(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<Pg
     WHERE id IN (
         SELECT v.id 
         FROM users AS u 
-        JOIN users_organizations AS uo ON u.id = uo.user_id 
+        JOIN organization_members AS uo ON u.id = uo.user_id 
         JOIN organizations AS o ON uo.organization_id = o.id 
         JOIN votes AS v ON o.id = v.organization_id 
         WHERE u.id = $1 AND v.id = $2)",

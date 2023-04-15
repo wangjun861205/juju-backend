@@ -32,7 +32,7 @@ pub struct ListResponse {
 //         r#"
 //         SELECT q.type_
 //         FROM users AS u
-//         JOIN users_organizations AS uo ON u.id = uo.user_id
+//         JOIN organization_members AS uo ON u.id = uo.user_id
 //         JOIN organizations AS o ON uo.organization_id = o.id
 //         JOIN votes AS v ON o.id = v.organization_id
 //         JOIN questions AS q ON v.id = q.vote_id
@@ -46,7 +46,7 @@ pub struct ListResponse {
 //         r#"
 //         SELECT op.id, op.option, a.id IS NOT NULL AS checked
 //         FROM users AS u
-//         JOIN users_organizations AS uo on u.id = uo.user_id
+//         JOIN organization_members AS uo on u.id = uo.user_id
 //         JOIN organizations AS og ON uo.organization_id = og.id
 //         JOIN votes AS v ON og.id = v.organization_id
 //         JOIN questions AS q ON v.id = q.vote_id
@@ -73,7 +73,7 @@ pub async fn add_opts(user_info: UserInfo, qst_id: Path<(i32,)>, Json(options): 
         "
         SELECT o.id, v.id
         FROM users AS u
-        JOIN users_organizations AS uo ON u.id = uo.user_id
+        JOIN organization_members AS uo ON u.id = uo.user_id
         JOIN organizations AS o ON uo.organization_id = o.id
         JOIN votes AS v ON o.id = v.organization_id
         JOIN questions AS q ON v.id = q.vote_id

@@ -43,7 +43,7 @@ pub async fn submit_date_ranges(user_info: UserInfo, vote_id: Path<(i32,)>, Json
     SELECT EXISTS(
         SELECT * 
         FROM users AS u
-        JOIN users_organizations AS uo ON u.id = uo.user_id
+        JOIN organization_members AS uo ON u.id = uo.user_id
         JOIN organizations AS o ON uo.organization_id = o.id
         JOIN votes AS v ON o.id = votes.organization_id
         WHERE u.id = $1 AND v.id = $2)"#,
@@ -94,7 +94,7 @@ pub async fn date_range_list(user_info: UserInfo, vote_id: Path<(i32,)>, db: Dat
         r#"
     SELECT dr.range_
     FROM users AS u
-    JOIN users_organizations AS uo ON u.id = uo.user_id
+    JOIN organization_members AS uo ON u.id = uo.user_id
     JOIN organizations AS o ON uo.organization_id = o.id
     JOIN votes AS v ON o.id = v.organization_id
     JOIN date_ranges AS dr ON v.id = dr.vote_id
@@ -130,7 +130,7 @@ WITH
         SELECT COUNT(DISTINCT u.id) AS count_
         FROM votes AS v 
         JOIN organizations AS o ON v.organization_id = o.id
-        JOIN users_organizations AS uo ON o.id = uo.organization_id
+        JOIN organization_members AS uo ON o.id = uo.organization_id
         JOIN users AS u ON uo.user_id = u.id
         WHERE v.id = $1
     ),
@@ -138,7 +138,7 @@ WITH
         SELECT d.date_ AS date_, COUNT(DISTINCT u.id) AS count_
         FROM votes AS v 
         JOIN organizations AS o ON v.organization_id = o.id
-        JOIN users_organizations AS uo ON o.id = uo.organization_id
+        JOIN organization_members AS uo ON o.id = uo.organization_id
         JOIN users AS u ON uo.user_id = u.id
         JOIN dates AS d ON v.id = d.vote_id AND u.id = d.user_id
         WHERE  v.id = $1 AND EXTRACT(YEAR FROM d.date_) = $2
@@ -168,7 +168,7 @@ WITH
         SELECT COUNT(DISTINCT u.id) AS count_
         FROM votes AS v 
         JOIN organizations AS o ON v.organization_id = o.id
-        JOIN users_organizations AS uo ON o.id = uo.organization_id
+        JOIN organization_members AS uo ON o.id = uo.organization_id
         JOIN users AS u ON uo.user_id = u.id
         WHERE v.id = $1
     ),
@@ -176,7 +176,7 @@ WITH
         SELECT d.date_ AS date_, COUNT(DISTINCT u.id) AS count_
         FROM votes AS v 
         JOIN organizations AS o ON v.organization_id = o.id
-        JOIN users_organizations AS uo ON o.id = uo.organization_id
+        JOIN organization_members AS uo ON o.id = uo.organization_id
         JOIN users AS u ON uo.user_id = u.id
         JOIN dates AS d ON v.id = d.vote_id AND u.id = d.user_id
         WHERE  v.id = $1 AND EXTRACT(YEAR FROM d.date_) = $2 AND EXTRACT(MONTH FROM d.date_) = $3
@@ -213,7 +213,7 @@ pub async fn month_report(user_info: UserInfo, vote_id: Path<(i32,)>, Query(para
     SELECT EXISTS(
         SELECT *
         FROM users AS u
-        JOIN users_organizations AS uo ON u.id = uo.user_id
+        JOIN organization_members AS uo ON u.id = uo.user_id
         JOIN organizations AS o ON uo.organization_id = o.id
         JOIN votes AS v ON o.id = v.organization_id
         WHERE u.id = $1 AND v.id = $2)"#,
@@ -252,7 +252,7 @@ pub async fn year_report(user_info: UserInfo, vote_id: Path<(i32,)>, Query(param
     SELECT EXISTS(
         SELECT *
         FROM users AS u
-        JOIN users_organizations AS uo ON u.id = uo.user_id
+        JOIN organization_members AS uo ON u.id = uo.user_id
         JOIN organizations AS o ON uo.organization_id = o.id
         JOIN votes AS v ON o.id = v.organization_id
         WHERE u.id = $1 AND v.id = $2)"#,

@@ -26,7 +26,7 @@ pub async fn find(Query(FindUserParams { phone, exclude_org_id, page, size }): Q
     let total = query_scalar(
         "SELECT COUNT(DISTINCT u.id)
         FROM users AS u
-        LEFT JOIN users_organizations AS uo ON u.id = uo.user_id
+        LEFT JOIN organization_members AS uo ON u.id = uo.user_id
         LEFT JOIN organizations AS o ON uo.organization_id = o.id
         WHERE u.phone LIKE $1
         AND ($2 IS NULL OR o.id IS NULL OR o.id != $2)",
@@ -38,7 +38,7 @@ pub async fn find(Query(FindUserParams { phone, exclude_org_id, page, size }): Q
     let list = query_as(
         "SELECT DISTINCT u.id, u.nickname
         FROM users AS u
-        LEFT JOIN users_organizations AS uo ON u.id = uo.user_id
+        LEFT JOIN organization_members AS uo ON u.id = uo.user_id
         LEFT JOIN organizations AS o ON uo.organization_id = o.id
         WHERE u.phone LIKE $1
         AND ($2 IS NULL OR o.id IS NULL OR o.id != $2)
@@ -80,7 +80,7 @@ pub async fn list(
         "
     SELECT COUNT(*)
     FROM users AS u
-    JOIN users_organizations AS uo ON u.id = uo.user_id
+    JOIN organization_members AS uo ON u.id = uo.user_id
     JOIN organizations AS o ON uo.organization_id = o.id 
     WHERE 1 = 1 ",
     );
@@ -101,7 +101,7 @@ pub async fn list(
     let mut list_query = QueryBuilder::new(
         "SELECT u.id, u.nickname
     FROM users AS u
-    JOIN users_organizations AS uo ON u.id = uo.user_id
+    JOIN organization_members AS uo ON u.id = uo.user_id
     JOIN organizations AS o ON uo.organization_id = o.id 
     WHERE 1 = 1",
     );

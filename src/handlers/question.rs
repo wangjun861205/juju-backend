@@ -78,7 +78,7 @@ pub async fn detail(user_info: UserInfo, qst_id: Path<(i32,)>, db: Data<PgPool>)
     let qst: Question = query_as(
         "SELECT q.*
     FROM users AS u
-    JOIN users_organizations AS uo ON u.id = uo.user_id
+    JOIN organization_members AS uo ON u.id = uo.user_id
     JOIN organizations AS o ON uo.organization_id = o.id
     JOIN votes AS v ON o.id = v.organization_id
     JOIN questions AS q ON v.id = q.vote_id
@@ -117,7 +117,7 @@ pub async fn delete(user_info: UserInfo, qst_id: Path<(i32,)>, db: Data<PgPool>)
     WHERE id IN (
         SELECT q.id
         FROM users AS u
-        JOIN users_organizations AS uo ON u.id = uo.user_id
+        JOIN organization_members AS uo ON u.id = uo.user_id
         JOIN organizations AS o ON uo.organization_id = o.id
         JOIN votes AS v ON o.id = v.organization_id
         JOIN questions AS q ON v.id = q.vote_id
@@ -146,7 +146,7 @@ pub async fn questions_with_options_by_vote_id(user_info: UserInfo, vote_id: Pat
         "
             SELECT COUNT(*)
             FROM users AS u
-            JOIN users_organizations AS uo ON u.id = uo.user_id
+            JOIN organization_members AS uo ON u.id = uo.user_id
             JOIN votes AS v ON uo.organization_id = v.organization_id
             JOIN questions AS q ON v.id = q.vote_id
             WHERE u.id = $1 AND v.id = $2
@@ -170,7 +170,7 @@ pub async fn questions_with_options_by_vote_id(user_info: UserInfo, vote_id: Pat
             q.description,
             q.type_
         FROM users AS u
-        JOIN users_organizations AS uo ON u.id = uo.user_id
+        JOIN organization_members AS uo ON u.id = uo.user_id
         JOIN votes AS v ON uo.organization_id = v.organization_id
         JOIN questions AS q ON v.id = q.vote_id
         WHERE u.id = $1 AND v.id = $2) AS q
@@ -216,7 +216,7 @@ pub async fn answers(user_info: UserInfo, question_id: Path<(i32,)>, db: Data<Pg
     SELECT
         a.option_id AS option_id
     FROM users AS u
-    JOIN users_organizations AS uo ON u.id = uo.user_id
+    JOIN organization_members AS uo ON u.id = uo.user_id
     JOIN votes AS v ON uo.organization_id = v.organization_id
     JOIN questions AS q ON v.id = q.vote_id
     JOIN options AS o ON q.id = o.question_id

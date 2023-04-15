@@ -32,7 +32,9 @@ pub mod models;
 pub mod privilege;
 pub mod request;
 pub mod response;
+pub mod core;
 mod storer;
+pub mod database;
 
 use actix_web::web::{delete, get, post, put, scope, Data};
 use actix_web::HttpServer;
@@ -83,7 +85,7 @@ async fn main() -> Result<(), std::io::Error> {
                                         scope("{organization_id}")
                                             .wrap(Author::new(
                                                 pool.clone(),
-                                                "SELECT EXISTS(SELECT id FROM users_organizations WHERE user_id = $1 AND organization_id = $2)",
+                                                "SELECT EXISTS(SELECT id FROM organization_members WHERE user_id = $1 AND organization_id = $2)",
                                                 "organization_id",
                                             ))
                                             .route("", get().to(handlers::organization::detail))
@@ -96,7 +98,7 @@ async fn main() -> Result<(), std::io::Error> {
                                             .service(
                                                 scope("users")
                                                     .route("", post().to(handlers::organization::add_users))
-                                                    .route("", get().to(handlers::organization::users::<PgAuthorizer>)),
+                                                    .route("", get().to(handlers::organization::members::<PgAuthorizer>)),
                                             )
                                             .service(
                                                 scope("managers")
@@ -114,7 +116,7 @@ async fn main() -> Result<(), std::io::Error> {
                                     scope("{vote_id}")
                                         .wrap(Author::new(
                                             pool.clone(),
-                                            "SELECT EXISTS(SELECT uo.id FROM users_organizations AS uo JOIN votes AS v ON uo.organization_id = v.organization_id WHERE uo.user_id = $1 AND v.id = $2)",
+                                            "SELECT EXISTS(SELECT uo.id FROM organization_members AS uo JOIN votes AS v ON uo.organization_id = v.organization_id WHERE uo.user_id = $1 AND v.id = $2)",
                                             "vote_id",
                                         ))
                                         .route("", get().to(handlers::vote::detail))
@@ -145,7 +147,7 @@ async fn main() -> Result<(), std::io::Error> {
                                     scope("{question_id}")
                                         .wrap(Author::new(
                                             pool.clone(),
-                                            "SELECT EXISTS(SELECT uo.id FROM users_organizations AS uo JOIN votes AS v ON uo.organization_id = v.organization_id JOIN questions AS q ON v.id = q.vote_id WHERE uo.user_id = $1 AND q.id = $2)",
+                                            "SELECT EXISTS(SELECT uo.id FROM organization_members AS uo JOIN votes AS v ON uo.organization_id = v.organization_id JOIN questions AS q ON v.id = q.vote_id WHERE uo.user_id = $1 AND q.id = $2)",
                                             "question_id"
                                         ))
                                         .route("", get().to(handlers::question::detail))
@@ -170,7 +172,7 @@ async fn main() -> Result<(), std::io::Error> {
                                         pool.clone(),
                                         "SELECT EXISTS(
                                             SELECT uo.id
-                                            FROM users_organizations AS uo
+                                            FROM organization_members AS uo
                                             JOIN votes AS v ON uo.organization_id = v.organization_id
                                             JOIN questions AS q ON v.id = q.vote_id
                                             JOIN options AS o ON q.id = o.question_id

@@ -1,15 +1,18 @@
 use actix_web::HttpResponse;
-use sqlx::{query, query_as, query_scalar, FromRow, PgPool, QueryBuilder};
+use sqlx::{query, query_as, query_scalar, PgPool, QueryBuilder};
 
 use crate::actix_web::web::{Data, Json, Path, Query};
 use crate::context::UserInfo;
+use crate::database::sqlx::PgSqlxManager;
 use crate::error::Error;
 use crate::handlers::user::User;
+use crate::models::organization::Insert;
 use crate::models::{organization::Organization, vote::VoteWithStatuses};
 use crate::request::Pagination;
 use crate::response::{CreateResponse, DeleteResponse, UpdateResponse};
 use crate::serde::{Deserialize, Serialize};
 
+use crate::core::organization::{create_organization, joined_organizations};
 use crate::handlers::authorizer::Authorizer;
 use crate::response::List;
 
@@ -21,7 +24,7 @@ pub async fn delete_organization(user_info: UserInfo, organization_id: Path<(i32
     WHERE id IN (
         SELECT o.id 
         FROM users AS u 
-        JOIN users_organizations AS uo ON u.id = uo.user_id 
+        JOIN organization_members AS uo ON u.id = uo.user_id 
         JOIN organizations AS o ON uo.organization_id = o.id
         WHERE u.id = $1 AND o.id = $2)"#,
     )
@@ -39,7 +42,7 @@ pub async fn detail(user_info: UserInfo, organization_id: Path<(i32,)>, db: Data
         r#"
         SELECT o.*
         FROM users AS u
-        JOIN users_organizations AS uo ON u.id = uo.user_id
+        JOIN organization_members AS uo ON u.id = uo.user_id
         JOIN organizations AS o ON uo.organization_id = o.id
         WHERE u.id = $1
         AND o.id = $2
@@ -53,7 +56,7 @@ pub async fn detail(user_info: UserInfo, organization_id: Path<(i32,)>, db: Data
         "UPDATE organizations SET version = version + 1 WHERE id IN (
             SELECT o.id
             FROM users AS u
-            JOIN users_organizations AS uo ON u.id = uo.user_id
+            JOIN organization_members AS uo ON u.id = uo.user_id
             JOIN organizations AS o ON uo.organization_id = o.id
             WHERE u.id = $1
             AND o.id = $2)",
@@ -66,91 +69,75 @@ pub async fn detail(user_info: UserInfo, organization_id: Path<(i32,)>, db: Data
     Ok(Json(org))
 }
 
-#[derive(Debug, Serialize, FromRow)]
-pub struct Item {
-    id: i32,
-    name: String,
-    version: i64,
-    vote_count: i64,
-    has_new_vote: bool,
-}
+// #[derive(Debug, Serialize, FromRow)]
+// pub struct Item {
+//     id: i32,
+//     name: String,
+//     version: i64,
+//     vote_count: i64,
+//     has_new_vote: bool,
+// }
 
-pub async fn my_organizations(user_info: UserInfo, Query(Pagination { page, size }): Query<Pagination>, db: Data<PgPool>) -> Result<Json<List<Item>>, Error> {
-    let mut tx = db.begin().await?;
-    let (total,): (i64,) = query_as(
-        "
-        SELECT COUNT(*)
-        FROM users AS u
-        JOIN users_organizations AS uo ON u.id = uo.user_id
-        JOIN organizations AS o ON uo.organization_id = o.id
-        WHERE u.id = $1",
-    )
-    .bind(user_info.id)
-    .fetch_one(&mut tx)
-    .await?;
-    let orgs = query_as(
-        "
-        SELECT 
-            o.id, 
-            o.name, 
-            o.version, 
-            COUNT(DISTINCT v.id) AS vote_count, 
-            SUM(o.version) > SUM(orm.version) OR SUM(COALESCE(v.version, 0)) > SUM(COALESCE(vrm.version, 0)) OR SUM(COALESCE(q.version, 0)) > SUM(COALESCE(qrm.version, 0)) AS has_new_vote
-        FROM users AS u
-        JOIN users_organizations AS uo ON u.id = uo.user_id
-        JOIN organizations AS o ON uo.organization_id = o.id
-        JOIN organization_read_marks AS orm ON o.id = orm.organization_id
-        LEFT JOIN votes AS v ON o.id = v.organization_id
-        LEFT JOIN vote_read_marks AS vrm ON v.id = vrm.vote_id
-        LEFT JOIN questions AS q ON v.id = q.vote_id
-        LEFT JOIN question_read_marks AS qrm ON q.id = qrm.question_id
-        WHERE u.id = $1
-        AND orm.user_id = $1
-        AND (vrm.user_id = $1 OR vrm.user_id IS NULL)
-        AND (qrm.user_id = $1 OR qrm.user_id IS NULL)
-        GROUP BY o.id, o.name, o.version
-        LIMIT $2
-        OFFSET $3",
-    )
-    .bind(user_info.id)
-    .bind(size)
-    .bind((page - 1) * size)
-    .fetch_all(&mut tx)
-    .await?;
-    tx.commit().await?;
+pub async fn my_organizations(user_info: UserInfo, Query(Pagination { page, size }): Query<Pagination>, db: Data<PgPool>) -> Result<Json<List<Organization>>, Error> {
+    let conn = db.acquire().await?;
+    let mut manager = PgSqlxManager::new(conn);
+    let (orgs, total) = joined_organizations(&mut manager, user_info.id, page, size).await?;
     Ok(Json(List::new(orgs, total)))
+    // let mut tx = db.begin().await?;
+    // let (total,): (i64,) = query_as(
+    //     "
+    //     SELECT COUNT(*)
+    //     FROM users AS u
+    //     JOIN organization_members AS uo ON u.id = uo.user_id
+    //     JOIN organizations AS o ON uo.organization_id = o.id
+    //     WHERE u.id = $1",
+    // )
+    // .bind(user_info.id)
+    // .fetch_one(&mut tx)
+    // .await?;
+    // let orgs = query_as(
+    //     "
+    //     SELECT
+    //         o.id,
+    //         o.name,
+    //         o.version,
+    //         COUNT(DISTINCT v.id) AS vote_count,
+    //         SUM(o.version) > SUM(orm.version) OR SUM(COALESCE(v.version, 0)) > SUM(COALESCE(vrm.version, 0)) OR SUM(COALESCE(q.version, 0)) > SUM(COALESCE(qrm.version, 0)) AS has_new_vote
+    //     FROM users AS u
+    //     JOIN organization_members AS uo ON u.id = uo.user_id
+    //     JOIN organizations AS o ON uo.organization_id = o.id
+    //     JOIN organization_read_marks AS orm ON o.id = orm.organization_id
+    //     LEFT JOIN votes AS v ON o.id = v.organization_id
+    //     LEFT JOIN vote_read_marks AS vrm ON v.id = vrm.vote_id
+    //     LEFT JOIN questions AS q ON v.id = q.vote_id
+    //     LEFT JOIN question_read_marks AS qrm ON q.id = qrm.question_id
+    //     WHERE u.id = $1
+    //     AND orm.user_id = $1
+    //     AND (vrm.user_id = $1 OR vrm.user_id IS NULL)
+    //     AND (qrm.user_id = $1 OR qrm.user_id IS NULL)
+    //     GROUP BY o.id, o.name, o.version
+    //     LIMIT $2
+    //     OFFSET $3",
+    // )
+    // .bind(user_info.id)
+    // .bind(size)
+    // .bind((page - 1) * size)
+    // .fetch_all(&mut tx)
+    // .await?;
+    // tx.commit().await?;
+    // Ok(Json(List::new(orgs, total)))
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct OrganizationCreation {
+pub struct Create {
     name: String,
 }
 
-pub async fn create(user_info: UserInfo, Json(OrganizationCreation { name }): Json<OrganizationCreation>, db: Data<PgPool>) -> Result<Json<CreateResponse>, Error> {
-    let mut tx = db.begin().await?;
-    let (id,): (i32,) = query_as(
-        "
-        INSERT INTO organizations (name) values ($1) RETURNING id",
-    )
-    .bind(name)
-    .fetch_one(&mut tx)
-    .await?;
-    query("INSERT INTO users_organizations (user_id, organization_id) VALUES ($1, $2)")
-        .bind(user_info.id)
-        .bind(id)
-        .execute(&mut tx)
-        .await?;
-    query("INSERT INTO organization_managers (user_id, organization_id) VALUES ($1, $2)")
-        .bind(user_info.id)
-        .bind(id)
-        .execute(&mut tx)
-        .await?;
-    query("INSERT INTO organization_read_marks (organization_id, user_id, version) VALUES ($1, $2, 1)")
-        .bind(id)
-        .bind(user_info.id)
-        .execute(&mut tx)
-        .await?;
-    tx.commit().await?;
+pub async fn create(user_info: UserInfo, Json(Create { name }): Json<Create>, db: Data<PgPool>) -> Result<Json<CreateResponse>, Error> {
+    let tx = db.begin().await?;
+    let mut manager = PgSqlxManager::new(tx);
+    let id = create_organization(&mut manager, user_info.id, Insert { name, version: 1 }).await?;
+    manager.commit().await?;
     Ok(Json(CreateResponse { id }))
 }
 
@@ -167,7 +154,7 @@ pub async fn update(user_info: UserInfo, org_id: Path<(i32,)>, Json(req): Json<U
     WHERE id IN (
         SELECT o.id
         FROM users AS u
-        JOIN users_organizations AS uo ON u.id = uo.user_id
+        JOIN organization_members AS uo ON u.id = uo.user_id
         JOIN organizations AS o ON uo.organization_id = o.id
         WHERE u.id = $1
         AND o.id = $3)",
@@ -186,7 +173,7 @@ pub async fn add_users(user_info: UserInfo, org_id: Path<(i32,)>, Json(user_ids)
     query(
         "
         SELECT * 
-        FROM users_organizations AS uo
+        FROM organization_members AS uo
         WHERE user_id = $1
         AND organization_id = $2
         FOR UPDATE",
@@ -197,7 +184,7 @@ pub async fn add_users(user_info: UserInfo, org_id: Path<(i32,)>, Json(user_ids)
     .await?;
     QueryBuilder::new(
         "
-        INSERT INTO users_organizations (user_id, organization_id)",
+        INSERT INTO organization_members (user_id, organization_id)",
     )
     .push_values(user_ids.iter(), |mut b, u| {
         b.push_bind(u);
@@ -264,7 +251,7 @@ pub async fn add_manager(Json(AddManager { user_id, organization_id }): Json<Add
 }
 
 // list all users which belongs to one organization
-pub async fn users<T: Authorizer>(me: UserInfo, org_id: Path<(i32,)>, db: Data<PgPool>, authorizer: Data<T>) -> Result<Json<List<User>>, Error> {
+pub async fn members<T: Authorizer>(me: UserInfo, org_id: Path<(i32,)>, db: Data<PgPool>, authorizer: Data<T>) -> Result<Json<List<User>>, Error> {
     let org_id = org_id.into_inner().0;
     let mut conn = db.acquire().await?;
     let ok = authorizer.check_organization_read(me.id, org_id).await?;
@@ -275,7 +262,7 @@ pub async fn users<T: Authorizer>(me: UserInfo, org_id: Path<(i32,)>, db: Data<P
         "
     SELECT COUNT(*)
     FROM users AS u
-    JOIN users_organizations AS uo ON u.id = uo.user_id
+    JOIN organization_members AS uo ON u.id = uo.user_id
     JOIN organizations AS o ON uo.organization_id = o.id
     WHERE o.id = $1",
     )
@@ -286,7 +273,7 @@ pub async fn users<T: Authorizer>(me: UserInfo, org_id: Path<(i32,)>, db: Data<P
         "
     SELECT u.id, u.nickname
     FROM users AS u
-    JOIN users_organizations AS uo ON u.id = uo.user_id
+    JOIN organization_members AS uo ON u.id = uo.user_id
     JOIN organizations AS o ON uo.organization_id = o.id
     WHERE o.id = $1",
     )
@@ -345,7 +332,7 @@ pub async fn search(user_info: UserInfo, Query(SearchParams { keyword, page, siz
         "
     SELECT COUNT(o.id)
     FROM organizations AS o
-    LEFT JOIN (SELECT organization_id FROM users_organizations WHERE user_id = $1) AS uo ON o.id = uo.organization_id
+    LEFT JOIN (SELECT organization_id FROM organization_members WHERE user_id = $1) AS uo ON o.id = uo.organization_id
     WHERE uo.organization_id IS NULL
     AND o.name LIKE $2",
     )
@@ -357,7 +344,7 @@ pub async fn search(user_info: UserInfo, Query(SearchParams { keyword, page, siz
         "
     SELECT o.*
     FROM organizations AS o
-    LEFT JOIN (SELECT organization_id FROM users_organizations WHERE user_id = $1) AS uo ON o.id = uo.organization_id
+    LEFT JOIN (SELECT organization_id FROM organization_members WHERE user_id = $1) AS uo ON o.id = uo.organization_id
     WHERE uo.organization_id IS NULL
     AND o.name LIKE $2
     LIMIT $3

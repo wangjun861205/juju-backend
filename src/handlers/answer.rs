@@ -73,7 +73,7 @@ pub async fn answer_list(user_info: UserInfo, qst_id: Path<(i32,)>, db: Data<PgP
         r#"
     SELECT q.type_
     FROM users AS u
-    JOIN users_organizations AS uo ON u.id = uo.user_id
+    JOIN organization_members AS uo ON u.id = uo.user_id
     JOIN organizations AS o ON uo.organization_id = o.id
     JOIN votes AS v ON o.id = v.organization_id
     JOIN questions AS q ON v.id = q.vote_id
@@ -128,7 +128,7 @@ pub async fn submit_answers(db: Data<PgPool>, user_info: UserInfo, vote_id: Path
     SELECT EXISTS(
         SELECT *
         FROM users AS u
-        JOIN users_organizations AS uo ON u.id = uo.user_id
+        JOIN organization_members AS uo ON u.id = uo.user_id
         JOIN votes AS v ON uo.organization_id = v.id
         WHERE u.id = $1 AND v.id = $2
         FOR SHARE
