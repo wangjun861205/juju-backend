@@ -1,6 +1,6 @@
 use crate::core::organization::DatabaseManager as OrganizationManager;
 use crate::error::Error;
-use crate::models::organization::{Organization, Query};
+use crate::models::organization::{Organization, OrganizationWithVoteInfo, Query};
 use sqlx::{query, query_as, query_scalar, Executor, PgPool, Postgres, Transaction};
 pub struct PgSqlxManager<E>
 where
@@ -49,7 +49,7 @@ where
     }
 
     async fn update(&mut self, id: i32, data: crate::models::organization::Update) -> Result<(), Self::Error> {
-        query("UPDATE organizations SET name = COALESCE($1, name), version = COALESCE($2, version) WHERE id = $3")
+        query("UPDATE organizations SET name = $1, version = $2 WHERE id = $3")
             .bind(data.name)
             .bind(data.version)
             .bind(id)
@@ -75,7 +75,7 @@ where
         Ok(total)
     }
 
-    async fn query(&mut self, param: Query, page: i64, size: i64) -> Result<Vec<Organization>, Self::Error> {
+    async fn query(&mut self, param: Query, page: i64, size: i64) -> Result<Vec<OrganizationWithVoteInfo>, Self::Error> {
         let organizations = query_as(
             "
         SELECT 
@@ -143,6 +143,34 @@ where
             .execute(&mut self.executor)
             .await?;
         Ok(())
+    }
+
+    async fn get(&mut self, id: i32) -> Result<Organization, Self::Error> {
+        let org = query_as("SELECT * FROM organizations WHERE id = $1").bind(id).fetch_one(&mut self.executor).await?;
+        Ok(org)
+    }
+
+    async fn get_for_update(&mut self, id: i32) -> Result<Organization, Self::Error> {
+        let org = query_as("SELECT * FROM organizations WHERE id = $1 FOR UPDATE").bind(id).fetch_one(&mut self.executor).await?;
+        Ok(org)
+    }
+
+    async fn is_member(&mut self, id: i32, uid: i32) -> Result<bool, Error> {
+        let res = query_scalar("SELECT EXISTS(SELECT * FROM organization_members WHERE organization_id = $1 AND user_id = $2)")
+            .bind(id)
+            .bind(uid)
+            .fetch_one(&mut self.executor)
+            .await?;
+        Ok(res)
+    }
+
+    async fn is_manager(&mut self, id: i32, uid: i32) -> Result<bool, Error> {
+        let res = query_scalar("SELECT EXISTS(SELECT * FROM organization_managers WHERE organization_id = $1 AND user_id = $2)")
+            .bind(id)
+            .bind(uid)
+            .fetch_one(&mut self.executor)
+            .await?;
+        Ok(res)
     }
 }
 

@@ -1,3 +1,7 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use actix_web::http::StatusCode;
 use actix_web::HttpResponse;
 use sqlx::{query, query_as, query_scalar, PgPool, QueryBuilder};
 
@@ -6,13 +10,13 @@ use crate::context::UserInfo;
 use crate::database::sqlx::PgSqlxManager;
 use crate::error::Error;
 use crate::handlers::user::User;
-use crate::models::organization::Insert;
+use crate::models::organization::OrganizationWithVoteInfo;
 use crate::models::{organization::Organization, vote::VoteWithStatuses};
 use crate::request::Pagination;
 use crate::response::{CreateResponse, DeleteResponse, UpdateResponse};
 use crate::serde::{Deserialize, Serialize};
 
-use crate::core::organization::{create_organization, joined_organizations};
+use crate::core::organization::{create_organization, get_organization, joined_organizations, update_organization, Create, DatabaseManager, Update};
 use crate::handlers::authorizer::Authorizer;
 use crate::response::List;
 
@@ -35,108 +39,24 @@ pub async fn delete_organization(user_info: UserInfo, organization_id: Path<(i32
     Ok(Json(DeleteResponse::new(deleted)))
 }
 
-pub async fn detail(user_info: UserInfo, organization_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<Organization>, Error> {
-    let organization_id = organization_id.into_inner().0;
-    let mut tx = db.begin().await?;
-    let org: Organization = query_as(
-        r#"
-        SELECT o.*
-        FROM users AS u
-        JOIN organization_members AS uo ON u.id = uo.user_id
-        JOIN organizations AS o ON uo.organization_id = o.id
-        WHERE u.id = $1
-        AND o.id = $2
-        FOR SHARE"#,
-    )
-    .bind(user_info.id)
-    .bind(organization_id)
-    .fetch_one(&mut tx)
-    .await?;
-    query(
-        "UPDATE organizations SET version = version + 1 WHERE id IN (
-            SELECT o.id
-            FROM users AS u
-            JOIN organization_members AS uo ON u.id = uo.user_id
-            JOIN organizations AS o ON uo.organization_id = o.id
-            WHERE u.id = $1
-            AND o.id = $2)",
-    )
-    .bind(user_info.id)
-    .bind(organization_id)
-    .execute(&mut tx)
-    .await?;
-    tx.commit().await?;
+pub async fn detail(organization_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<Organization>, Error> {
+    let conn = db.acquire().await?;
+    let mut manager = PgSqlxManager::new(conn);
+    let org = get_organization(&mut manager, organization_id.0).await?;
     Ok(Json(org))
 }
 
-// #[derive(Debug, Serialize, FromRow)]
-// pub struct Item {
-//     id: i32,
-//     name: String,
-//     version: i64,
-//     vote_count: i64,
-//     has_new_vote: bool,
-// }
-
-pub async fn my_organizations(user_info: UserInfo, Query(Pagination { page, size }): Query<Pagination>, db: Data<PgPool>) -> Result<Json<List<Organization>>, Error> {
+pub async fn my_organizations(user_info: UserInfo, Query(Pagination { page, size }): Query<Pagination>, db: Data<PgPool>) -> Result<Json<List<OrganizationWithVoteInfo>>, Error> {
     let conn = db.acquire().await?;
     let mut manager = PgSqlxManager::new(conn);
     let (orgs, total) = joined_organizations(&mut manager, user_info.id, page, size).await?;
     Ok(Json(List::new(orgs, total)))
-    // let mut tx = db.begin().await?;
-    // let (total,): (i64,) = query_as(
-    //     "
-    //     SELECT COUNT(*)
-    //     FROM users AS u
-    //     JOIN organization_members AS uo ON u.id = uo.user_id
-    //     JOIN organizations AS o ON uo.organization_id = o.id
-    //     WHERE u.id = $1",
-    // )
-    // .bind(user_info.id)
-    // .fetch_one(&mut tx)
-    // .await?;
-    // let orgs = query_as(
-    //     "
-    //     SELECT
-    //         o.id,
-    //         o.name,
-    //         o.version,
-    //         COUNT(DISTINCT v.id) AS vote_count,
-    //         SUM(o.version) > SUM(orm.version) OR SUM(COALESCE(v.version, 0)) > SUM(COALESCE(vrm.version, 0)) OR SUM(COALESCE(q.version, 0)) > SUM(COALESCE(qrm.version, 0)) AS has_new_vote
-    //     FROM users AS u
-    //     JOIN organization_members AS uo ON u.id = uo.user_id
-    //     JOIN organizations AS o ON uo.organization_id = o.id
-    //     JOIN organization_read_marks AS orm ON o.id = orm.organization_id
-    //     LEFT JOIN votes AS v ON o.id = v.organization_id
-    //     LEFT JOIN vote_read_marks AS vrm ON v.id = vrm.vote_id
-    //     LEFT JOIN questions AS q ON v.id = q.vote_id
-    //     LEFT JOIN question_read_marks AS qrm ON q.id = qrm.question_id
-    //     WHERE u.id = $1
-    //     AND orm.user_id = $1
-    //     AND (vrm.user_id = $1 OR vrm.user_id IS NULL)
-    //     AND (qrm.user_id = $1 OR qrm.user_id IS NULL)
-    //     GROUP BY o.id, o.name, o.version
-    //     LIMIT $2
-    //     OFFSET $3",
-    // )
-    // .bind(user_info.id)
-    // .bind(size)
-    // .bind((page - 1) * size)
-    // .fetch_all(&mut tx)
-    // .await?;
-    // tx.commit().await?;
-    // Ok(Json(List::new(orgs, total)))
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct Create {
-    name: String,
 }
 
 pub async fn create(user_info: UserInfo, Json(Create { name }): Json<Create>, db: Data<PgPool>) -> Result<Json<CreateResponse>, Error> {
     let tx = db.begin().await?;
     let mut manager = PgSqlxManager::new(tx);
-    let id = create_organization(&mut manager, user_info.id, Insert { name, version: 1 }).await?;
+    let id = create_organization(&mut manager, user_info.id, Create { name }).await?;
     manager.commit().await?;
     Ok(Json(CreateResponse { id }))
 }
@@ -146,25 +66,12 @@ pub struct UpdateRequest {
     name: String,
 }
 
-pub async fn update(user_info: UserInfo, org_id: Path<(i32,)>, Json(req): Json<UpdateRequest>, db: Data<PgPool>) -> Result<Json<UpdateResponse>, Error> {
-    let org_id = org_id.into_inner().0;
-    let (updated,): (i32,) = query_as(
-        "
-    UPDATE organizations SET name = $1
-    WHERE id IN (
-        SELECT o.id
-        FROM users AS u
-        JOIN organization_members AS uo ON u.id = uo.user_id
-        JOIN organizations AS o ON uo.organization_id = o.id
-        WHERE u.id = $1
-        AND o.id = $3)",
-    )
-    .bind(req.name)
-    .bind(user_info.id)
-    .bind(org_id)
-    .fetch_one(&mut db.acquire().await?)
-    .await?;
-    Ok(Json(UpdateResponse::new(updated as usize)))
+pub async fn update(user_info: UserInfo, org_id: Path<(i32,)>, Json(req): Json<UpdateRequest>, db: Data<PgPool>) -> Result<HttpResponse, Error> {
+    let tx = db.begin().await?;
+    let mut manager = PgSqlxManager::new(tx);
+    update_organization(&mut manager, user_info.id, org_id.0, Update { name: req.name }).await?;
+    manager.commit().await?;
+    Ok(HttpResponse::new(StatusCode::OK))
 }
 
 pub async fn add_users(user_info: UserInfo, org_id: Path<(i32,)>, Json(user_ids): Json<Vec<i32>>, db: Data<PgPool>) -> Result<Json<()>, Error> {

@@ -2,13 +2,20 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use sqlx_insert::{table_name, Insertable};
 
-#[derive(Debug, Clone, Serialize, FromRow)]
+#[derive(Debug, Clone, Serialize, FromRow, Default)]
 pub struct Organization {
     pub id: i32,
     pub name: String,
     pub version: i64,
-    pub vote_count: i64,
-    pub has_new_vote: bool,
+}
+
+#[derive(Debug, Clone, Serialize, FromRow, Default)]
+pub struct OrganizationWithVoteInfo {
+    pub id: i32,
+    pub name: String,
+    pub version: i64,
+    pub vote_count: Option<i64>,
+    pub has_new_vote: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize, Insertable)]
@@ -18,9 +25,10 @@ pub struct Insert {
     pub version: i64,
 }
 
+#[derive(Debug)]
 pub struct Update {
-    pub name: Option<String>,
-    pub version: Option<i64>,
+    pub name: String,
+    pub version: i64,
 }
 
 #[derive(Default)]

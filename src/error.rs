@@ -9,7 +9,7 @@ use crate::chrono;
 use crate::dotenv::Error as DotError;
 use crate::jsonwebtoken::errors::Error as JsonWebTokenError;
 use crate::thiserror::Error as ThisError;
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::io::Error as IOError;
 use std::num;
 
