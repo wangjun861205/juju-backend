@@ -3,6 +3,8 @@ use sqlx::{query_as, query_scalar, FromRow, PgPool, QueryBuilder};
 
 use crate::actix_web::web::{Json, Query};
 use crate::context::UserInfo;
+use crate::core::user::search_by_phone;
+use crate::database::sqlx::PgSqlx;
 use crate::error::Error;
 use crate::response::List;
 use crate::serde::{Deserialize, Serialize};
@@ -17,42 +19,12 @@ pub struct User {
 pub struct FindUserParams {
     phone: String,
     exclude_org_id: Option<i32>,
-    page: i64,
-    size: i64,
 }
 
-pub async fn find(Query(FindUserParams { phone, exclude_org_id, page, size }): Query<FindUserParams>, db: Data<PgPool>) -> Result<Json<List<User>>, Error> {
-    let mut conn = db.acquire().await?;
-    let total = query_scalar(
-        "SELECT COUNT(DISTINCT u.id)
-        FROM users AS u
-        LEFT JOIN organization_members AS uo ON u.id = uo.user_id
-        LEFT JOIN organizations AS o ON uo.organization_id = o.id
-        WHERE u.phone LIKE $1
-        AND ($2 IS NULL OR o.id IS NULL OR o.id != $2)",
-    )
-    .bind(format!("%{}%", &phone))
-    .bind(exclude_org_id)
-    .fetch_one(&mut conn)
-    .await?;
-    let list = query_as(
-        "SELECT DISTINCT u.id, u.nickname
-        FROM users AS u
-        LEFT JOIN organization_members AS uo ON u.id = uo.user_id
-        LEFT JOIN organizations AS o ON uo.organization_id = o.id
-        WHERE u.phone LIKE $1
-        AND ($2 IS NULL OR o.id IS NULL OR o.id != $2)
-        LIMIT $3
-        OFFSET $4",
-    )
-    .bind(format!("%{}%", &phone))
-    .bind(exclude_org_id)
-    .bind(size)
-    .bind((page - 1) * size)
-    .fetch_all(&mut conn)
-    .await?;
-
-    Ok(Json(List::new(list, total)))
+pub async fn find(Query(FindUserParams { phone, exclude_org_id }): Query<FindUserParams>, db: Data<PgPool>) -> Result<Json<Option<User>>, Error> {
+    let store = PgSqlx::new(db.acquire().await?);
+    let user = search_by_phone(store, phone, exclude_org_id).await?.map(|u| User { id: u.id, nickname: u.nickname });
+    Ok(Json(user))
 }
 
 #[derive(Debug, Deserialize)]

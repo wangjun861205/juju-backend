@@ -1,15 +1,25 @@
-use crate::core::organization::DatabaseManager as OrganizationManager;
+use crate::core::{
+    db::{Common, Manager, OptionCommon, OrganizationCommon, QuestionCommon, Storer, TxStorer, UserCommon, VoteCommon, DB},
+    models::VoteQuery,
+};
 use crate::error::Error;
-use crate::models::organization::{Organization, OrganizationWithVoteInfo, Query};
-use sqlx::{query, query_as, query_scalar, Executor, PgPool, Postgres, Transaction};
-pub struct PgSqlxManager<E>
+use crate::models::option::OptInsertion;
+use crate::models::{
+    organization::{Organization, OrganizationWithVoteInfo, Query},
+    question::QuestionInsertion,
+    user::User,
+};
+use sqlx::pool::PoolConnection;
+use sqlx::{query, query_as, query_scalar, Executor, PgPool, Postgres, QueryBuilder, Transaction};
+
+pub struct PgSqlx<E>
 where
     for<'e> &'e mut E: Executor<'e>,
 {
     executor: E,
 }
 
-impl<E> PgSqlxManager<E>
+impl<E> PgSqlx<E>
 where
     for<'e> &'e mut E: Executor<'e>,
 {
@@ -18,19 +28,11 @@ where
     }
 }
 
-impl PgSqlxManager<Transaction<'_, Postgres>> {
-    pub async fn commit(self) -> Result<(), Error> {
-        self.executor.commit().await?;
-        Ok(())
-    }
-}
-
-impl<E> OrganizationManager for PgSqlxManager<E>
+impl<E> OrganizationCommon for PgSqlx<E>
 where
     for<'e> &'e mut E: Executor<'e, Database = Postgres>,
 {
-    type Error = Error;
-    async fn add_member(&mut self, id: i32, uid: i32) -> Result<(), Self::Error> {
+    async fn add_member(&mut self, id: i32, uid: i32) -> Result<(), Error> {
         query("INSERT INTO organization_members (organization_id, user_id) VALUES ($1, $2)")
             .bind(id)
             .bind(uid)
@@ -39,16 +41,17 @@ where
         Ok(())
     }
 
-    async fn insert(&mut self, data: crate::models::organization::Insert) -> Result<i32, Self::Error> {
-        let id = query_scalar("INSERT INTO organizations (name, version) VALUES ($1, $2) RETURNING id")
+    async fn insert(&mut self, data: crate::models::organization::Insert) -> Result<i32, Error> {
+        let id = query_scalar("INSERT INTO organizations (name, version) VALUES ($1, $2, $3) RETURNING id")
             .bind(data.name)
             .bind(data.version)
+            .bind(data.description)
             .fetch_one(&mut self.executor)
             .await?;
         Ok(id)
     }
 
-    async fn update(&mut self, id: i32, data: crate::models::organization::Update) -> Result<(), Self::Error> {
+    async fn update(&mut self, id: i32, data: crate::models::organization::Update) -> Result<(), Error> {
         query("UPDATE organizations SET name = $1, version = $2 WHERE id = $3")
             .bind(data.name)
             .bind(data.version)
@@ -58,7 +61,7 @@ where
         Ok(())
     }
 
-    async fn count(&mut self, param: Query) -> Result<i64, Self::Error> {
+    async fn count(&mut self, param: Query) -> Result<i64, Error> {
         let total = query_scalar(
             "
         SELECT COUNT(DISTINCT id) 
@@ -75,7 +78,7 @@ where
         Ok(total)
     }
 
-    async fn query(&mut self, param: Query, page: i64, size: i64) -> Result<Vec<OrganizationWithVoteInfo>, Self::Error> {
+    async fn query(&mut self, param: Query, page: i64, size: i64) -> Result<Vec<OrganizationWithVoteInfo>, Error> {
         let organizations = query_as(
             "
         SELECT 
@@ -104,12 +107,12 @@ where
         Ok(organizations)
     }
 
-    async fn delete(&mut self, id: i32) -> Result<(), Self::Error> {
+    async fn delete(&mut self, id: i32) -> Result<(), Error> {
         query("DELETE FROM organizations WHERE id = $1").bind(id).execute(&mut self.executor).await?;
         Ok(())
     }
 
-    async fn exists(&mut self, name: &str) -> Result<bool, Self::Error> {
+    async fn exists(&mut self, name: &str) -> Result<bool, Error> {
         let exists = query_scalar("SELECT EXISTS(SELECT * FROM organizations WHERE name = $1)")
             .bind(name)
             .fetch_one(&mut self.executor)
@@ -117,7 +120,7 @@ where
         Ok(exists)
     }
 
-    async fn add_user_version(&mut self, id: i32, uid: i32) -> Result<(), Self::Error> {
+    async fn add_user_version(&mut self, id: i32, uid: i32) -> Result<(), Error> {
         query("INSERT INTO organization_read_marks (organization_id, user_id, version) VALUES ($1, $2, 1)")
             .bind(id)
             .bind(uid)
@@ -126,7 +129,7 @@ where
         Ok(())
     }
 
-    async fn update_user_version(&mut self, id: i32, uid: i32, version: i32) -> Result<(), Self::Error> {
+    async fn update_user_version(&mut self, id: i32, uid: i32, version: i32) -> Result<(), Error> {
         query("UPDATE organization_read_marks SET version = $1 WHERE organization_id = $2 AND user_id = $3")
             .bind(version)
             .bind(id)
@@ -136,7 +139,7 @@ where
         Ok(())
     }
 
-    async fn add_manager(&mut self, id: i32, uid: i32) -> Result<(), Self::Error> {
+    async fn add_manager(&mut self, id: i32, uid: i32) -> Result<(), Error> {
         query("INSERT INTO organization_managers (organization_id, user_id) VALUES ($1, $2)")
             .bind(id)
             .bind(uid)
@@ -145,12 +148,12 @@ where
         Ok(())
     }
 
-    async fn get(&mut self, id: i32) -> Result<Organization, Self::Error> {
+    async fn get(&mut self, id: i32) -> Result<Organization, Error> {
         let org = query_as("SELECT * FROM organizations WHERE id = $1").bind(id).fetch_one(&mut self.executor).await?;
         Ok(org)
     }
 
-    async fn get_for_update(&mut self, id: i32) -> Result<Organization, Self::Error> {
+    async fn get_for_update(&mut self, id: i32) -> Result<Organization, Error> {
         let org = query_as("SELECT * FROM organizations WHERE id = $1 FOR UPDATE").bind(id).fetch_one(&mut self.executor).await?;
         Ok(org)
     }
@@ -174,22 +177,141 @@ where
     }
 }
 
-pub struct PgSqlx {
+impl<E> UserCommon for PgSqlx<E>
+where
+    for<'e> &'e mut E: Executor<'e, Database = Postgres>,
+{
+    async fn get_by_phone(&mut self, phone: String) -> Result<Option<User>, Error> {
+        let user = query_as("SELECT * FROM users WHERE phone = $1").bind(phone).fetch_optional(&mut self.executor).await?;
+        Ok(user)
+    }
+}
+
+pub struct PgSqlxManager {
     pool: PgPool,
 }
 
-impl PgSqlx {
+impl PgSqlxManager {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 
-    pub async fn begin(&'static self) -> Result<PgSqlxManager<sqlx::Transaction<Postgres>>, Error> {
+    pub async fn begin(&self) -> Result<PgSqlx<sqlx::Transaction<Postgres>>, Error> {
         let tx = self.pool.begin().await?;
-        Ok(PgSqlxManager { executor: tx })
+        Ok(PgSqlx { executor: tx })
     }
 
-    pub async fn acquire(&'static self) -> Result<PgSqlxManager<sqlx::pool::PoolConnection<Postgres>>, Error> {
+    pub async fn acquire(&self) -> Result<PgSqlx<sqlx::pool::PoolConnection<Postgres>>, Error> {
         let conn = self.pool.acquire().await?;
-        Ok(PgSqlxManager { executor: conn })
+        Ok(PgSqlx { executor: conn })
+    }
+}
+
+impl<E> VoteCommon for PgSqlx<E>
+where
+    for<'e> &'e mut E: Executor<'e, Database = Postgres>,
+{
+    async fn insert(&mut self, data: crate::models::vote::VoteInsertion) -> Result<i32, Error> {
+        let id = query_scalar("INSERT INTO votes (name, deadline, organization_id, visibility) VALUES ($1, $2, $3, $4) RETURNING id")
+            .bind(data.name)
+            .bind(data.deadline)
+            .bind(data.organization_id)
+            .bind(data.visibility)
+            .fetch_one(&mut self.executor)
+            .await?;
+        Ok(id)
+    }
+
+    async fn count(&mut self, query: &VoteQuery) -> Result<i64, Error> {
+        let mut stmt = QueryBuilder::new(
+            "
+        SELECT COUNT(DISTINCT id)
+        FROM votes 
+        WHERE 1 = 1",
+        );
+        if let Some(oid) = query.organization_id {
+            stmt.push(" AND organization_id = ");
+            stmt.push_bind(oid);
+        }
+        let (n,) = stmt.build_query_as().fetch_one(&mut self.executor).await?;
+        Ok(n)
+    }
+
+    async fn query(&mut self, query: &VoteQuery) -> Result<Vec<crate::models::vote::Vote>, Error> {
+        let mut stmt = QueryBuilder::new(
+            "SELECT
+            v.*,
+            CASE WHEN v.version > COALESCE(vrm.version, 0) THEN true ELSE false END AS has_updated,
+            CASE WHEN v.deadline < CURRENT_DATE THEN 'Exprired' ELSE 'Active' END AS status
+        FROM votes AS v
+        LEFT JOIN vote_read_marks AS vrm ON v.id = vrm.vote_id AND vrm.user_id = ",
+        );
+        stmt.push_bind(query.uid);
+        stmt.push(" WHERE 1 = 1");
+        if let Some(oid) = query.organization_id {
+            stmt.push(" AND v.organization_id = ").push_bind(oid);
+        }
+        stmt.push(" LIMIT ").push_bind(query.size);
+        stmt.push(" OFFSET ").push_bind((query.page - 1) * query.size);
+        let votes = stmt.build_query_as().fetch_all(&mut self.executor).await?;
+        Ok(votes)
+    }
+}
+
+impl<'a> Storer for PgSqlx<PoolConnection<Postgres>> {}
+impl<'a> Storer for PgSqlx<Transaction<'a, Postgres>> {}
+impl<'a> Common for PgSqlx<PoolConnection<Postgres>> {}
+impl<'a> Common for PgSqlx<Transaction<'a, Postgres>> {}
+
+impl<'a> TxStorer for PgSqlx<Transaction<'a, Postgres>> {
+    async fn commit(self) -> Result<(), Error> {
+        self.executor.commit().await?;
+        Ok(())
+    }
+
+    async fn rollback(self) -> Result<(), Error> {
+        self.executor.rollback().await?;
+        Ok(())
+    }
+}
+
+impl<'a> Manager<'a, PgSqlx<PoolConnection<Postgres>>, PgSqlx<Transaction<'a, Postgres>>> for PgSqlxManager {
+    async fn db(&'a self) -> Result<PgSqlx<PoolConnection<Postgres>>, Error> {
+        let d = self.acquire().await?;
+        Ok(d)
+    }
+
+    async fn tx(&'a self) -> Result<PgSqlx<Transaction<'a, Postgres>>, Error> {
+        let t = self.begin().await?;
+        Ok(t)
+    }
+}
+
+impl<E> QuestionCommon for PgSqlx<E>
+where
+    for<'e> &'e mut E: Executor<'e, Database = Postgres>,
+{
+    async fn insert(&mut self, question: QuestionInsertion) -> Result<i32, Error> {
+        let id = query_scalar("INSERT INTO questions (description, type_, version, vote_id) VALUES ($1, $2, 1, $3) RETURNING id")
+            .bind(question.description)
+            .bind(question.type_)
+            .bind(question.vote_id)
+            .fetch_one(&mut self.executor)
+            .await?;
+        Ok(id)
+    }
+}
+
+impl<E> OptionCommon for PgSqlx<E>
+where
+    for<'e> &'e mut E: Executor<'e, Database = Postgres>,
+{
+    async fn insert(&mut self, option: OptInsertion) -> Result<i32, Error> {
+        let id = query_scalar("INSERT INTO options (option, question_id) VALUES ($1, $2) RETURNING id")
+            .bind(option.option)
+            .bind(option.question_id)
+            .fetch_one(&mut self.executor)
+            .await?;
+        Ok(id)
     }
 }

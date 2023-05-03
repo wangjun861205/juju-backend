@@ -1,63 +1,48 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-
 use actix_web::http::StatusCode;
 use actix_web::HttpResponse;
 use sqlx::{query, query_as, query_scalar, PgPool, QueryBuilder};
 
 use crate::actix_web::web::{Data, Json, Path, Query};
 use crate::context::UserInfo;
-use crate::database::sqlx::PgSqlxManager;
+use crate::core::models::VoteQuery;
+use crate::core::organization::delete_organization as delete_organization_core;
+use crate::database::sqlx::PgSqlx;
 use crate::error::Error;
 use crate::handlers::user::User;
 use crate::models::organization::OrganizationWithVoteInfo;
-use crate::models::{organization::Organization, vote::VoteWithStatuses};
+use crate::models::{organization::Organization, vote::Vote};
 use crate::request::Pagination;
-use crate::response::{CreateResponse, DeleteResponse, UpdateResponse};
+use crate::response::CreateResponse;
 use crate::serde::{Deserialize, Serialize};
 
-use crate::core::organization::{create_organization, get_organization, joined_organizations, update_organization, Create, DatabaseManager, Update};
+use crate::core::organization::{create_organization, get_organization, joined_organizations, update_organization, Create, Update};
 use crate::handlers::authorizer::Authorizer;
 use crate::response::List;
 
-pub async fn delete_organization(user_info: UserInfo, organization_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<DeleteResponse>, Error> {
-    let organization_id = organization_id.into_inner().0;
-    let (deleted,): (i32,) = query_as(
-        r#"DELETE 
-    FROM organizations  
-    WHERE id IN (
-        SELECT o.id 
-        FROM users AS u 
-        JOIN organization_members AS uo ON u.id = uo.user_id 
-        JOIN organizations AS o ON uo.organization_id = o.id
-        WHERE u.id = $1 AND o.id = $2)"#,
-    )
-    .bind(user_info.id)
-    .bind(organization_id)
-    .fetch_one(&mut db.acquire().await?)
-    .await?;
-    Ok(Json(DeleteResponse::new(deleted)))
+pub async fn delete_organization(user_info: UserInfo, organization_id: Path<(i32,)>, db: Data<PgPool>) -> Result<HttpResponse, Error> {
+    let mut pg = PgSqlx::new(db.acquire().await?);
+    delete_organization_core(&mut pg, user_info.id, organization_id.0).await?;
+    Ok(HttpResponse::new(StatusCode::OK))
 }
 
 pub async fn detail(organization_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<Organization>, Error> {
     let conn = db.acquire().await?;
-    let mut manager = PgSqlxManager::new(conn);
-    let org = get_organization(&mut manager, organization_id.0).await?;
+    let mut pg = PgSqlx::new(conn);
+    let org = get_organization(&mut pg, organization_id.0).await?;
     Ok(Json(org))
 }
 
 pub async fn my_organizations(user_info: UserInfo, Query(Pagination { page, size }): Query<Pagination>, db: Data<PgPool>) -> Result<Json<List<OrganizationWithVoteInfo>>, Error> {
     let conn = db.acquire().await?;
-    let mut manager = PgSqlxManager::new(conn);
-    let (orgs, total) = joined_organizations(&mut manager, user_info.id, page, size).await?;
+    let mut pg = PgSqlx::new(conn);
+    let (orgs, total) = joined_organizations(&mut pg, user_info.id, page, size).await?;
     Ok(Json(List::new(orgs, total)))
 }
 
-pub async fn create(user_info: UserInfo, Json(Create { name }): Json<Create>, db: Data<PgPool>) -> Result<Json<CreateResponse>, Error> {
+pub async fn create(user_info: UserInfo, Json(data): Json<Create>, db: Data<PgPool>) -> Result<Json<CreateResponse>, Error> {
     let tx = db.begin().await?;
-    let mut manager = PgSqlxManager::new(tx);
-    let id = create_organization(&mut manager, user_info.id, Create { name }).await?;
-    manager.commit().await?;
+    let pg = PgSqlx::new(tx);
+    let id = create_organization(pg, user_info.id, data).await?;
     Ok(Json(CreateResponse { id }))
 }
 
@@ -68,9 +53,8 @@ pub struct UpdateRequest {
 
 pub async fn update(user_info: UserInfo, org_id: Path<(i32,)>, Json(req): Json<UpdateRequest>, db: Data<PgPool>) -> Result<HttpResponse, Error> {
     let tx = db.begin().await?;
-    let mut manager = PgSqlxManager::new(tx);
-    update_organization(&mut manager, user_info.id, org_id.0, Update { name: req.name }).await?;
-    manager.commit().await?;
+    let pg = PgSqlx::new(tx);
+    update_organization(pg, user_info.id, org_id.0, Update { name: req.name }).await?;
     Ok(HttpResponse::new(StatusCode::OK))
 }
 
@@ -190,38 +174,18 @@ pub async fn members<T: Authorizer>(me: UserInfo, org_id: Path<(i32,)>, db: Data
     Ok(Json(List::new(list, total)))
 }
 
-pub async fn votes(user_info: UserInfo, param: Query<Pagination>, org_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<List<VoteWithStatuses>>, Error> {
+pub async fn votes(user_info: UserInfo, param: Query<Pagination>, org_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<List<Vote>>, Error> {
     let org_id = org_id.into_inner().0;
-    let mut tx = db.begin().await?;
-    let total: i64 = query_scalar(
-        "
-    SELECT COUNT(*)
-    FROM organizations AS o
-    JOIN votes AS v ON o.id = v.organization_id
-    WHERE o.id = $1",
+    let mut pg = PgSqlx::new(db.acquire().await?);
+    let (votes, total) = crate::core::vote::query_votes(
+        &mut pg,
+        VoteQuery {
+            organization_id: Some(org_id),
+            uid: user_info.id,
+            size: param.size,
+            page: param.page,
+        },
     )
-    .bind(org_id)
-    .fetch_one(&mut tx)
-    .await?;
-    let votes: Vec<VoteWithStatuses> = query_as(
-        "
-    SELECT 
-        v.*,
-        CASE WHEN v.deadline <= NOW() THEN 'Expired' ELSE 'Active' END AS status,
-        v.version > vrm.version AS has_updated
-    FROM organizations AS o
-    JOIN votes AS v ON o.id = v.organization_id
-    JOIN vote_read_marks AS vrm ON v.id = vrm.vote_id
-    WHERE vrm.id = $1
-    AND o.id = $2
-    LIMIT $3
-    OFFSET $4",
-    )
-    .bind(user_info.id)
-    .bind(org_id)
-    .bind(param.size)
-    .bind((param.page - 1) * param.size)
-    .fetch_all(&mut tx)
     .await?;
     Ok(Json(List::new(votes, total)))
 }

@@ -7,6 +7,7 @@ pub struct Organization {
     pub id: i32,
     pub name: String,
     pub version: i64,
+    pub description: String,
 }
 
 #[derive(Debug, Clone, Serialize, FromRow, Default)]
@@ -23,6 +24,7 @@ pub struct OrganizationWithVoteInfo {
 pub struct Insert {
     pub name: String,
     pub version: i64,
+    pub description: String,
 }
 
 #[derive(Debug)]

@@ -1,71 +1,64 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 
 use serde::Deserialize;
 
 use crate::error::Error;
 use crate::models::organization::{Insert as DBInsert, Organization as DBOrganization, OrganizationWithVoteInfo as DBOrganizationWithVoteInfo, Query as DBQuery, Update as DBUpdate};
 
-pub trait DatabaseManager {
-    type Error: Display + Debug;
-
-    async fn insert(&mut self, data: DBInsert) -> Result<i32, Self::Error>;
-    async fn update(&mut self, id: i32, data: DBUpdate) -> Result<(), Self::Error>;
-    async fn query(&mut self, param: DBQuery, page: i64, size: i64) -> Result<Vec<DBOrganizationWithVoteInfo>, Self::Error>;
-    async fn count(&mut self, param: DBQuery) -> Result<i64, Self::Error>;
-    async fn delete(&mut self, id: i32) -> Result<(), Self::Error>;
-    async fn exists(&mut self, name: &str) -> Result<bool, Self::Error>;
-    async fn add_member(&mut self, id: i32, uid: i32) -> Result<(), Self::Error>;
-    async fn add_user_version(&mut self, id: i32, uid: i32) -> Result<(), Self::Error>;
-    async fn update_user_version(&mut self, id: i32, uid: i32, version: i32) -> Result<(), Self::Error>;
-    async fn add_manager(&mut self, id: i32, uid: i32) -> Result<(), Self::Error>;
-    async fn get(&mut self, id: i32) -> Result<DBOrganization, Self::Error>;
-    async fn get_for_update(&mut self, id: i32) -> Result<DBOrganization, Self::Error>;
-    async fn is_member(&mut self, id: i32, uid: i32) -> Result<bool, Self::Error>;
-    async fn is_manager(&mut self, id: i32, uid: i32) -> Result<bool, Self::Error>;
-}
+use super::db::{OrganizationCommon, Storer, TxStorer};
 
 #[derive(Debug, Deserialize)]
 pub struct Create {
     pub name: String,
+    pub description: String,
 }
 
-pub async fn create_organization<M>(manager: &mut M, uid: i32, data: Create) -> Result<i32, Error>
+pub async fn create_organization<T>(mut tx: T, uid: i32, data: Create) -> Result<i32, Error>
 where
-    M: DatabaseManager,
-    Error: From<M::Error>,
+    T: TxStorer,
 {
-    let exists = manager.exists(&data.name).await?;
+    let exists = tx.exists(&data.name).await?;
     if exists {
         return Err(Error::BusinessError(format!("organization which has the same name already exists(name: {})", data.name)));
     }
-    let id = manager.insert(DBInsert { name: data.name, version: 1 }).await?;
-    manager.add_member(id, uid).await?;
-    manager.add_user_version(id, uid).await?;
-    manager.add_manager(id, uid).await?;
+    let id = OrganizationCommon::insert(
+        &mut tx,
+        DBInsert {
+            name: data.name,
+            version: 1,
+            description: data.description,
+        },
+    )
+    .await?;
+    tx.add_member(id, uid).await?;
+    tx.add_user_version(id, uid).await?;
+    tx.add_manager(id, uid).await?;
+    tx.commit().await?;
     Ok(id)
 }
 
-pub async fn joined_organizations<M>(manager: &mut M, uid: i32, page: i64, size: i64) -> Result<(Vec<DBOrganizationWithVoteInfo>, i64), Error>
+pub async fn joined_organizations<D>(db: &mut D, uid: i32, page: i64, size: i64) -> Result<(Vec<DBOrganizationWithVoteInfo>, i64), Error>
 where
-    M: DatabaseManager,
-    Error: From<M::Error>,
+    D: Storer,
 {
-    let total = manager
-        .count(DBQuery {
+    let total = OrganizationCommon::count(
+        db,
+        DBQuery {
             member_id: Some(uid),
             ..Default::default()
-        })
-        .await?;
-    let orgs = manager
-        .query(
-            DBQuery {
-                member_id: Some(uid),
-                ..Default::default()
-            },
-            page,
-            size,
-        )
-        .await?;
+        },
+    )
+    .await?;
+    let orgs = OrganizationCommon::query(
+        db,
+        DBQuery {
+            member_id: Some(uid),
+            ..Default::default()
+        },
+        page,
+        size,
+    )
+    .await?;
     Ok((orgs, total))
 }
 
@@ -73,33 +66,51 @@ pub struct Update {
     pub name: String,
 }
 
-pub async fn update_organization<M>(manager: &mut M, uid: i32, id: i32, data: Update) -> Result<(), Error>
+pub async fn update_organization<T>(mut tx: T, uid: i32, id: i32, data: Update) -> Result<(), Error>
 where
-    M: DatabaseManager,
-    Error: From<M::Error>,
+    T: TxStorer,
 {
-    let is_manager = manager.is_manager(id, uid).await?;
+    let is_manager = tx.is_manager(id, uid).await?;
     if !is_manager {
         return Err(Error::BusinessError("no permission".into()));
     }
-    let org = manager.get_for_update(id).await?;
-    manager
-        .update(
-            id,
-            DBUpdate {
-                name: data.name,
-                version: org.version + 1,
-            },
-        )
-        .await?;
+    let org = tx.get_for_update(id).await?;
+    tx.update(
+        id,
+        DBUpdate {
+            name: data.name,
+            version: org.version + 1,
+        },
+    )
+    .await?;
+    tx.commit().await?;
     Ok(())
 }
 
-pub async fn get_organization<M>(manager: &mut M, id: i32) -> Result<DBOrganization, Error>
+pub async fn get_organization<D>(db: &mut D, id: i32) -> Result<DBOrganization, Error>
 where
-    M: DatabaseManager,
-    Error: From<M::Error>,
+    D: Storer,
 {
-    let org = manager.get(id).await?;
+    let org = db.get(id).await?;
     Ok(org)
+}
+
+pub async fn delete_organization<D>(db: &mut D, uid: i32, id: i32) -> Result<(), Error>
+where
+    D: Storer,
+{
+    if !OrganizationCommon::is_manager(db, id, uid).await? {
+        return Err(Error::BusinessError("No permission".into()));
+    }
+    OrganizationCommon::delete(db, id).await
+}
+
+pub async fn add_manager<T>(tx: &mut T, id: i32, uid: i32) -> Result<(), Error>
+where
+    T: TxStorer,
+{
+    if OrganizationCommon::is_manager(tx, id, uid).await? {
+        return Ok(());
+    }
+    OrganizationCommon::add_manager(tx, id, uid).await
 }

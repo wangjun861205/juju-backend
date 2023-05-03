@@ -10,18 +10,8 @@ pub enum VoteVisibility {
     WhiteList,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow)]
-pub struct Vote {
-    pub id: i32,
-    pub name: String,
-    pub deadline: Option<NaiveDate>,
-    pub organization_id: i32,
-    pub version: i64,
-    pub visibility: VoteVisibility,
-}
-
 #[derive(Debug, Serialize, FromRow)]
-pub struct VoteWithStatuses {
+pub struct Vote {
     pub id: i32,
     pub name: String,
     pub deadline: Option<NaiveDate>,

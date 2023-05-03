@@ -2,76 +2,25 @@ use sqlx::{query, query_as, FromRow, QueryBuilder};
 
 use crate::actix_web::web::{Data, Json, Path};
 
-use crate::chrono::{DateTime, NaiveDate, Utc};
+use crate::chrono::NaiveDate;
 use crate::context::UserInfo;
+use crate::core::models::VoteCreate;
+use crate::core::vote::create_vote;
+use crate::database::sqlx::PgSqlx;
 use crate::error::Error;
 use crate::models::{
     date::Date,
     question::{Question, QuestionWithStatuses},
-    vote::{Vote, VoteWithStatuses},
+    vote::Vote,
 };
 use crate::response::{CreateResponse, DeleteResponse, List, UpdateResponse};
 use crate::serde::{Deserialize, Serialize};
 use crate::sqlx::PgPool;
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct Creation {
-    name: String,
-    deadline: Option<DateTime<Utc>>,
-}
-
-pub async fn create(user_info: UserInfo, org_id: Path<(i32,)>, Json(body): Json<Creation>, db: Data<PgPool>) -> Result<Json<CreateResponse>, Error> {
+pub async fn create(user_info: UserInfo, org_id: Path<(i32,)>, Json(body): Json<VoteCreate>, db: Data<PgPool>) -> Result<Json<CreateResponse>, Error> {
     let org_id = org_id.into_inner().0;
-    let mut tx = db.begin().await?;
-    let (exists,): (bool,) = query_as(
-        "
-    SELECT EXISTS(
-        SELECT *
-        FROM users AS u
-        JOIN organization_members AS uo ON u.id = uo.user_id
-        JOIN organizations AS o ON uo.organization_id = o.id
-        WHERE u.id = $1
-        AND o.id = $2)",
-    )
-    .bind(user_info.id)
-    .bind(org_id)
-    .fetch_one(&mut tx)
-    .await?;
-    if !exists {
-        return Err(Error::BusinessError("irrelative organization".into()));
-    }
-
-    let (vote_id,): (i32,) = query_as("INSERT INTO votes (name, deadline, organization_id) VALUES ($1, $2, $3) RETURNING id")
-        .bind(body.name)
-        .bind(body.deadline.map(|dl| dl.naive_utc().date()))
-        .bind(org_id)
-        .fetch_one(&mut tx)
-        .await?;
-    let user_ids: Vec<i32> = query_as(
-        "
-    SELECT u.id
-    FROM users AS u
-    JOIN organization_members AS uo ON u.id = uo.user_id
-    JOIN organizations AS o ON uo.organization_id = o.id
-    WHERE o.id = $1",
-    )
-    .bind(org_id)
-    .fetch_all(&mut tx)
-    .await?
-    .into_iter()
-    .map(|v: (i32,)| v.0)
-    .collect();
-
-    QueryBuilder::new("INSERT INTO vote_read_marks (user_id, vote_id, version) ")
-        .push_values(user_ids.into_iter(), |mut b, v| {
-            b.push_bind(v);
-            b.push_bind(vote_id);
-            b.push_bind(0);
-        })
-        .build()
-        .execute(&mut tx)
-        .await?;
-    tx.commit().await?;
+    let tx = PgSqlx::new(db.begin().await?);
+    let vote_id = create_vote(tx, body).await?;
     Ok(Json(CreateResponse { id: vote_id }))
 }
 
@@ -124,10 +73,10 @@ struct VoteDetail {
     questions: Vec<Question>,
 }
 
-pub async fn detail(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<VoteWithStatuses>, Error> {
+pub async fn detail(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<Vote>, Error> {
     let vote_id = vote_id.into_inner().0;
     let mut tx = db.begin().await?;
-    let vote: VoteWithStatuses = query_as(
+    let vote: Vote = query_as(
         "
     SELECT 
         v.*,
