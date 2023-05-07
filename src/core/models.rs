@@ -6,6 +6,7 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 pub struct OptionCreate {
     pub option: String,
+    pub images: Vec<Vec<u8>>,
 }
 
 #[derive(Debug, Deserialize)]

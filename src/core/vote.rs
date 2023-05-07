@@ -1,6 +1,6 @@
 use crate::core::db::{Storer, TxStorer, VoteCommon};
 use crate::core::models::VoteCreate;
-use crate::models::option::OptInsertion;
+use crate::models::option::OptInsert;
 use crate::models::question::QuestionInsertion;
 use crate::models::vote::Vote;
 use crate::{error::Error, models::vote::VoteInsertion};
@@ -36,8 +36,9 @@ where
         for opt in q.options {
             OptionCommon::insert(
                 &mut storer,
-                OptInsertion {
+                OptInsert {
                     option: opt.option,
+                    images: opt.images,
                     question_id: qst_id,
                 },
             )

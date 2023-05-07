@@ -1,5 +1,5 @@
 use crate::error::Error;
-use crate::models::option::OptInsertion;
+use crate::models::option::OptInsert;
 use crate::models::{
     organization::{Insert as OrganizationInsert, Organization, OrganizationWithVoteInfo, Query as OrganizationQuery, Update as OrganizationUpdate},
     question::QuestionInsertion,
@@ -43,7 +43,7 @@ pub trait UserCommon {
 }
 
 pub trait OptionCommon {
-    async fn insert(&mut self, option: OptInsertion) -> Result<i32, Error>;
+    async fn insert(&mut self, option: OptInsert) -> Result<i32, Error>;
 }
 
 pub trait Common: VoteCommon + OrganizationCommon + UserCommon + QuestionCommon + OptionCommon {}

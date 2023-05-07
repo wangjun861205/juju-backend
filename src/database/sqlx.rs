@@ -3,7 +3,7 @@ use crate::core::{
     models::VoteQuery,
 };
 use crate::error::Error;
-use crate::models::option::OptInsertion;
+use crate::models::option::OptInsert;
 use crate::models::{
     organization::{Organization, OrganizationWithVoteInfo, Query},
     question::QuestionInsertion,
@@ -306,9 +306,10 @@ impl<E> OptionCommon for PgSqlx<E>
 where
     for<'e> &'e mut E: Executor<'e, Database = Postgres>,
 {
-    async fn insert(&mut self, option: OptInsertion) -> Result<i32, Error> {
-        let id = query_scalar("INSERT INTO options (option, question_id) VALUES ($1, $2) RETURNING id")
+    async fn insert(&mut self, option: OptInsert) -> Result<i32, Error> {
+        let id = query_scalar("INSERT INTO options (option, images, question_id) VALUES ($1, $2, $3) RETURNING id")
             .bind(option.option)
+            .bind(option.images)
             .bind(option.question_id)
             .fetch_one(&mut self.executor)
             .await?;

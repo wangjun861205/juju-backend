@@ -11,7 +11,8 @@ pub struct Opt {
 
 #[derive(Debug, Clone, Deserialize, Insertable)]
 #[table_name("options")]
-pub struct OptInsertion {
+pub struct OptInsert {
     pub option: String,
+    pub images: Vec<Vec<u8>>,
     pub question_id: i32,
 }
