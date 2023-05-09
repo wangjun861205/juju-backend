@@ -1,6 +1,5 @@
-use chrono::NaiveDate;
-
 use crate::models::{question::QuestionType, vote::VoteVisibility};
+use chrono::NaiveDate;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -31,4 +30,19 @@ pub struct VoteQuery {
     pub organization_id: Option<i32>,
     pub page: i64,
     pub size: i64,
+}
+
+pub struct UploadedFile<I> {
+    pub id: I,
+    pub name: String,
+    pub extension: String,
+    pub content: Vec<u8>,
+    pub owner_id: i32,
+}
+
+pub struct UploadedFileCreate {
+    pub name: String,
+    pub extension: String,
+    pub content: Vec<u8>,
+    pub owner_id: i32,
 }
