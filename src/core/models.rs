@@ -3,16 +3,10 @@ use chrono::NaiveDate;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
-pub struct OptionCreate {
-    pub option: String,
-    pub images: Vec<Vec<u8>>,
-}
-
-#[derive(Debug, Deserialize)]
 pub struct QuestionCreate {
     pub description: String,
     pub type_: QuestionType,
-    pub options: Vec<OptionCreate>,
+    pub options: Vec<OptCreate>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -40,9 +34,16 @@ pub struct UploadedFile<I> {
     pub owner_id: i32,
 }
 
+#[derive(Debug, Deserialize)]
 pub struct UploadedFileCreate {
     pub name: String,
     pub extension: String,
     pub content: Vec<u8>,
     pub owner_id: i32,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OptCreate {
+    pub option: String,
+    pub images: Vec<UploadedFileCreate>,
 }

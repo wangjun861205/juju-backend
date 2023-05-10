@@ -13,6 +13,6 @@ pub struct Opt {
 #[table_name("options")]
 pub struct OptInsert {
     pub option: String,
-    pub images: Vec<Vec<u8>>,
+    pub images: Vec<i32>,
     pub question_id: i32,
 }

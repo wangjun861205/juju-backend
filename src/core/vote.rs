@@ -7,10 +7,12 @@ use crate::{error::Error, models::vote::VoteInsertion};
 
 use super::db::{OptionCommon, QuestionCommon};
 use super::models::VoteQuery;
+use super::uploader::Uploader;
 
-pub async fn create_vote<T>(mut storer: T, vote: VoteCreate) -> Result<i32, Error>
+pub async fn create_vote<T, U>(mut storer: T, mut uploader: U, vote: VoteCreate) -> Result<i32, Error>
 where
     T: TxStorer,
+    U: Uploader<ID = i32>,
 {
     let vote_id = VoteCommon::insert(
         &mut storer,
@@ -34,17 +36,19 @@ where
         )
         .await?;
         for opt in q.options {
+            let img_ids = uploader.bulk_put(opt.images).await?;
             OptionCommon::insert(
                 &mut storer,
                 OptInsert {
                     option: opt.option,
-                    images: opt.images,
+                    images: img_ids,
                     question_id: qst_id,
                 },
             )
             .await?;
         }
     }
+    uploader.commit().await?;
     storer.commit().await?;
     Ok(vote_id)
 }

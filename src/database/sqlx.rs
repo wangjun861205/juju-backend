@@ -307,12 +307,19 @@ where
     for<'e> &'e mut E: Executor<'e, Database = Postgres>,
 {
     async fn insert(&mut self, option: OptInsert) -> Result<i32, Error> {
-        let id = query_scalar("INSERT INTO options (option, images, question_id) VALUES ($1, $2, $3) RETURNING id")
+        let id = query_scalar("INSERT INTO options (option, question_id) VALUES ($1, $2) RETURNING id")
             .bind(option.option)
-            .bind(option.images)
             .bind(option.question_id)
             .fetch_one(&mut self.executor)
             .await?;
+        QueryBuilder::new("INSERT INTO options_images (option_id, uploaded_file_id)")
+            .push_values(option.images, |mut b, img_id| {
+                b.push_bind(id).push_bind(img_id);
+            })
+            .build()
+            .execute(&mut self.executor)
+            .await?;
+
         Ok(id)
     }
 }

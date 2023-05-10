@@ -1,4 +1,4 @@
-use sqlx::{query, query_as, FromRow, QueryBuilder};
+use sqlx::{query, query_as, FromRow, Postgres, QueryBuilder, Transaction};
 
 use crate::actix_web::web::{Data, Json, Path};
 
@@ -8,6 +8,8 @@ use crate::core::models::VoteCreate;
 use crate::core::vote::create_vote;
 use crate::database::sqlx::PgSqlx;
 use crate::error::Error;
+use crate::impls::uploaders::info_store::SqlxInfoStore;
+use crate::impls::uploaders::local_storage::LocalStorage;
 use crate::models::{
     date::Date,
     question::{Question, QuestionWithStatuses},
@@ -18,9 +20,9 @@ use crate::serde::{Deserialize, Serialize};
 use crate::sqlx::PgPool;
 
 pub async fn create(user_info: UserInfo, org_id: Path<(i32,)>, Json(body): Json<VoteCreate>, db: Data<PgPool>) -> Result<Json<CreateResponse>, Error> {
-    let org_id = org_id.into_inner().0;
     let tx = PgSqlx::new(db.begin().await?);
-    let vote_id = create_vote(tx, body).await?;
+    let uploader = LocalStorage::new("./uploads".into(), SqlxInfoStore::with_tx(db.begin().await?));
+    let vote_id = create_vote(tx, uploader, body).await?;
     Ok(Json(CreateResponse { id: vote_id }))
 }
 
