@@ -58,8 +58,8 @@ pub async fn login(Json(Login { username, password }): Json<Login>, db: Data<PgP
             return Ok(HttpResponse::build(StatusCode::FORBIDDEN).finish());
         }
         let claim = Claim {
-            uid: user.id,
-            exp: chrono::Utc::now().add(chrono::Duration::days(30)).timestamp() as usize,
+            user: user.id.to_string(),
+            exp: chrono::Utc::now().add(chrono::Duration::days(30)).timestamp(),
         };
         let secret = dotenv::var(JWT_SECRET)?;
         let token = encode(&Header::new(Algorithm::HS256), &claim, &EncodingKey::from_secret(secret.as_bytes()))?;

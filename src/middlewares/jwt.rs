@@ -1,85 +1,105 @@
+use actix_web::error::ErrorBadRequest;
 use serde::{Deserialize, Serialize};
 
 use crate::actix_web::{
-    dev::{Service, ServiceRequest, ServiceResponse, Transform},
-    error::{ErrorInternalServerError, ErrorUnauthorized},
+    dev::{Service, ServiceRequest, Transform},
+    error::ErrorUnauthorized,
     Error, HttpMessage,
 };
 use crate::context::UserInfo;
-use crate::dotenv;
-use crate::jsonwebtoken;
-use std::future::{ready, Future, Ready};
+use crate::core::tokener::{Payload, Tokener};
+use crate::impls::tokener::jwt::JWT;
+use std::future::Future;
 use std::pin::Pin;
 
 pub static JWT_TOKEN: &str = "JWT_TOKEN";
 pub static JWT_SECRET: &str = "JWT_SECRET";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Claim {
-    pub uid: i32,
-    pub exp: usize,
+    pub user: String,
+    pub exp: i64,
 }
 
-pub struct Jwt;
+impl Payload for Claim {
+    fn user(&self) -> &str {
+        &self.user
+    }
+}
 
-impl<S> Transform<S, ServiceRequest> for Jwt
+pub(crate) struct JWTMiddleware {
+    secret: Vec<u8>,
+}
+
+impl JWTMiddleware {
+    pub fn new(secret: Vec<u8>) -> Self {
+        Self { secret }
+    }
+}
+
+impl<S> Transform<S, ServiceRequest> for JWTMiddleware
 where
-    S: Service<ServiceRequest, Error = Error, Response = ServiceResponse>,
+    S: Service<ServiceRequest> + 'static,
     S::Future: 'static,
+    S::Error: Into<Error>,
 {
-    type Response = ServiceResponse;
     type Error = Error;
+    type Response = S::Response;
     type Transform = JWTService<S>;
     type InitError = ();
-    type Future = Ready<Result<Self::Transform, Self::InitError>>;
-
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Transform, Self::InitError>>>>;
     fn new_transform(&self, service: S) -> Self::Future {
-        ready(Ok(JWTService { service }))
+        let secret = self.secret.clone();
+        Box::pin(async move {
+            Ok(JWTService {
+                tokener: JWT::new(secret),
+                next_service: service,
+            })
+        })
     }
 }
 
 pub struct JWTService<S> {
-    service: S,
+    tokener: JWT,
+    next_service: S,
 }
 
 impl<S> Service<ServiceRequest> for JWTService<S>
 where
-    S: Service<ServiceRequest, Error = Error, Response = ServiceResponse>,
+    S: Service<ServiceRequest>,
     S::Future: 'static,
+    S::Error: Into<Error>,
 {
-    type Response = ServiceResponse;
+    type Response = S::Response;
     type Error = Error;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Error>>>>;
-
-    fn poll_ready(&self, ctx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
-        self.service.poll_ready(ctx)
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
+    fn poll_ready(&self, ctx: &mut core::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+        self.next_service.poll_ready(ctx).map_err(|e| e.into())
     }
+
     fn call(&self, req: ServiceRequest) -> Self::Future {
-        match req.cookie(JWT_TOKEN) {
-            None => return Box::pin(async move { Err(ErrorUnauthorized("unauthorized")) }),
-            Some(jwt) => match dotenv::var(JWT_SECRET) {
-                Ok(sct) => {
-                    match jsonwebtoken::decode::<Claim>(
-                        jwt.value(),
-                        &jsonwebtoken::DecodingKey::from_secret(sct.as_bytes()),
-                        &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
-                    ) {
-                        Ok(c) => {
-                            req.extensions_mut().insert(UserInfo { id: c.claims.uid });
-                        }
-                        Err(e) => {
-                            println!("{}", e);
-                            return Box::pin(async move { Err(ErrorUnauthorized("unauthorized")) });
-                        }
+        let header = req.headers().get("Authorization");
+        if header.is_none() {
+            return Box::pin(async move { Err(ErrorUnauthorized("no token in header")) });
+        }
+        let header = header.unwrap().to_owned();
+        match header.to_str() {
+            Err(e) => return Box::pin(async move { Err(ErrorUnauthorized(e)) }),
+            Ok(token) => match <JWT as Tokener<Claim>>::verify_token(&self.tokener, token) {
+                Err(e) => return Box::pin(async move { Err(ErrorUnauthorized(e)) }),
+                Ok(claim) => match claim.user.parse::<i32>() {
+                    Err(e) => return Box::pin(async move { Err(ErrorUnauthorized(e)) }),
+                    Ok(id) => {
+                        req.extensions_mut().insert(UserInfo { id });
                     }
-                }
-                Err(_) => return Box::pin(async move { Err(ErrorInternalServerError("internal server error")) }),
+                },
             },
         }
-        let fut = self.service.call(req);
+
+        let res_fut = self.next_service.call(req);
         Box::pin(async move {
-            let res = fut.await?;
-            Ok(res)
+            let resp = res_fut.await.map_err(|e| e.into())?;
+            Ok(resp)
         })
     }
 }

@@ -44,7 +44,7 @@ use actix_web::web::{delete, get, post, put, scope, Data};
 use actix_web::HttpServer;
 use authorizer::PgAuthorizer;
 use middlewares::authorizer::Author;
-use middlewares::jwt::Jwt;
+use middlewares::jwt::JWTMiddleware;
 use sqlx::postgres::PgPoolOptions;
 
 #[derive(Debug, Clone)]
@@ -61,6 +61,7 @@ async fn main() -> Result<(), std::io::Error> {
         .connect("postgres://postgres:postgres@localhost/juju")
         .await
         .expect("failed to connect to database");
+    let jwt_secret = dotenv::var("JWT_SECRET").expect("environment variable JWT_SECRET not been set").as_bytes().to_owned();
     HttpServer::new(move || {
         actix_web::App::new()
             .wrap(actix_web::middleware::Logger::default())
@@ -75,7 +76,7 @@ async fn main() -> Result<(), std::io::Error> {
                     .route("logout", get().to(handlers::logout))
                     .service(
                         scope("")
-                        .wrap(Jwt {})
+                        .wrap(JWTMiddleware::new(jwt_secret.clone()))
                             .service(
                                 scope("upload")
                                     .route("", post().to(handlers::upload::create::<storer::LocalStorer>))
