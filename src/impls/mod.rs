@@ -1,1 +1,1 @@
-pub mod uploaders;
+pub mod author;

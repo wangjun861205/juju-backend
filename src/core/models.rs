@@ -45,5 +45,5 @@ pub struct UploadedFileCreate {
 #[derive(Debug, Deserialize)]
 pub struct OptCreate {
     pub option: String,
-    pub images: Vec<UploadedFileCreate>,
+    pub images: Vec<String>,
 }

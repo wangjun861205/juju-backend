@@ -1,7 +1,6 @@
-pub mod auth;
 pub mod db;
 pub mod models;
 pub mod organization;
-pub mod uploader;
+pub mod tokener;
 pub mod user;
 pub mod vote;

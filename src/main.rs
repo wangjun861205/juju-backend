@@ -1,4 +1,5 @@
 #![feature(async_fn_in_trait)]
+#![feature(type_alias_impl_trait)]
 
 extern crate actix_multipart;
 extern crate actix_web;
