@@ -78,14 +78,11 @@ where
     }
 
     fn call(&self, req: ServiceRequest) -> Self::Future {
-        let header = req.headers().get("Authorization");
-        if header.is_none() {
-            return Box::pin(async move { Err(ErrorUnauthorized("no token in header")) });
-        }
-        let header = header.unwrap().to_owned();
-        match header.to_str() {
-            Err(e) => return Box::pin(async move { Err(ErrorUnauthorized(e)) }),
-            Ok(token) => match <JWT as Tokener<Claim>>::verify_token(&self.tokener, token) {
+        match req.cookie(JWT_TOKEN) {
+            None => {
+                return Box::pin(async move { Err(ErrorUnauthorized("no token in cookie")) });
+            }
+            Some(cookie) => match <JWT as Tokener<Claim>>::verify_token(&self.tokener, cookie.value()) {
                 Err(e) => return Box::pin(async move { Err(ErrorUnauthorized(e)) }),
                 Ok(claim) => match claim.user.parse::<i32>() {
                     Err(e) => return Box::pin(async move { Err(ErrorUnauthorized(e)) }),
@@ -95,7 +92,6 @@ where
                 },
             },
         }
-
         let res_fut = self.next_service.call(req);
         Box::pin(async move {
             let resp = res_fut.await.map_err(|e| e.into())?;

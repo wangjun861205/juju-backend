@@ -18,10 +18,14 @@ use rand::Rng;
 use sqlx::{query, query_as, PgPool};
 use std::ops::Add;
 
-use crate::actix_web::{
-    cookie::Cookie,
-    web::{Data, Json},
-    HttpResponse,
+use crate::{
+    actix_web::{
+        cookie::Cookie,
+        web::{Data, Json},
+        HttpResponse,
+    },
+    core::tokener::Tokener,
+    impls::tokener::jwt::JWT,
 };
 
 use crate::dotenv;
@@ -62,8 +66,8 @@ pub async fn login(Json(Login { username, password }): Json<Login>, db: Data<PgP
             exp: chrono::Utc::now().add(chrono::Duration::days(30)).timestamp(),
         };
         let secret = dotenv::var(JWT_SECRET)?;
-        let token = encode(&Header::new(Algorithm::HS256), &claim, &EncodingKey::from_secret(secret.as_bytes()))?;
-
+        let tokener = JWT::new(secret.as_bytes().to_owned());
+        let token = tokener.gen_token(&claim)?;
         return Ok(HttpResponse::build(StatusCode::OK).cookie(Cookie::new(JWT_TOKEN, token)).finish());
     }
     Err(Error::BusinessError("invalid username or password".into()))
