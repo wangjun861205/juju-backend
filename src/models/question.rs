@@ -41,3 +41,13 @@ pub struct QuestionInsertion {
     pub type_: QuestionType,
     pub version: i64,
 }
+
+pub struct Query {
+    pub vote_id: Option<i32>,
+}
+
+pub struct ReadMarkCreate {
+    pub question_id: i32,
+    pub user_id: i32,
+    pub version: i64,
+}

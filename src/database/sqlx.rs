@@ -1,12 +1,12 @@
 use crate::core::{
-    db::{Common, Manager, OptionCommon, OrganizationCommon, QuestionCommon, Storer, TxStorer, UserCommon, VoteCommon, DB},
+    db::{Common, Manager, OptionCommon, OrganizationCommon, Pagination, QuestionCommon, QuestionReadMarkCommon, Storer, TxStorer, UserCommon, VoteCommon, VoteReadMarkCommon},
     models::VoteQuery,
 };
 use crate::error::Error;
 use crate::models::option::OptInsert;
 use crate::models::{
     organization::{Organization, OrganizationWithVoteInfo, Query},
-    question::QuestionInsertion,
+    question::{Query as QuestionQuery, Question, QuestionInsertion, ReadMarkCreate as QuestionReadMarkCreate},
     user::User,
 };
 use sqlx::pool::PoolConnection;
@@ -256,6 +256,11 @@ where
         let votes = stmt.build_query_as().fetch_all(&mut self.executor).await?;
         Ok(votes)
     }
+
+    async fn get(&mut self, id: i32) -> Result<crate::models::vote::Vote, Error> {
+        let vote = query_as("SELECT * FROM votes WHERE id = $1").bind(id).fetch_one(&mut self.executor).await?;
+        Ok(vote)
+    }
 }
 
 impl<'a> Storer for PgSqlx<PoolConnection<Postgres>> {}
@@ -300,6 +305,17 @@ where
             .await?;
         Ok(id)
     }
+
+    async fn query(&mut self, query: QuestionQuery, pagination: Pagination) -> Result<Vec<Question>, Error> {
+        let mut q = QueryBuilder::new("SELECT * FROM questions WHERE 1 = 1");
+        if let Some(vote_id) = query.vote_id {
+            q.push(" AND vote_id = ").push_bind(vote_id);
+        }
+        q.push(" LIMIT ").push_bind(pagination.size);
+        q.push(" OFFSET ").push_bind((pagination.page - 1) * pagination.size);
+        let questions = q.build_query_as().fetch_all(&mut self.executor).await?;
+        Ok(questions)
+    }
 }
 
 impl<E> OptionCommon for PgSqlx<E>
@@ -307,19 +323,42 @@ where
     for<'e> &'e mut E: Executor<'e, Database = Postgres>,
 {
     async fn insert(&mut self, option: OptInsert) -> Result<i32, Error> {
-        let id = query_scalar("INSERT INTO options (option, question_id) VALUES ($1, $2) RETURNING id")
+        let id = query_scalar("INSERT INTO options (option, question_id, images) VALUES ($1, $2, $3) RETURNING id")
             .bind(option.option)
             .bind(option.question_id)
+            .bind(option.images)
             .fetch_one(&mut self.executor)
             .await?;
-        QueryBuilder::new("INSERT INTO options_images (option_id, uploaded_file_id)")
-            .push_values(option.images, |mut b, img_id| {
-                b.push_bind(id).push_bind(img_id);
-            })
-            .build()
-            .execute(&mut self.executor)
-            .await?;
+        Ok(id)
+    }
+}
 
+impl<E> VoteReadMarkCommon for PgSqlx<E>
+where
+    for<'e> &'e mut E: Executor<'e, Database = Postgres>,
+{
+    async fn insert(&mut self, mark: crate::models::vote::ReadMarkCreate) -> Result<i32, Error> {
+        let id = query_scalar("INSERT INTO vote_read_marks (user_id, vote_id, version) VALUES ($1, $2, $3) RETURNING id")
+            .bind(mark.user_id)
+            .bind(mark.vote_id)
+            .bind(mark.version)
+            .fetch_one(&mut self.executor)
+            .await?;
+        Ok(id)
+    }
+}
+
+impl<E> QuestionReadMarkCommon for PgSqlx<E>
+where
+    for<'e> &'e mut E: Executor<'e, Database = Postgres>,
+{
+    async fn insert(&mut self, mark: QuestionReadMarkCreate) -> Result<i32, Error> {
+        let id = query_scalar("INSERT INTO question_read_marks (user_id, question_id, version) VALUES ($1, $2, $3) RETURNING id")
+            .bind(mark.user_id)
+            .bind(mark.question_id)
+            .bind(mark.version)
+            .fetch_one(&mut self.executor)
+            .await?;
         Ok(id)
     }
 }

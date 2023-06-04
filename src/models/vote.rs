@@ -38,3 +38,9 @@ pub struct VoteUpdation {
     pub version: i64,
     pub visibility: VoteVisibility,
 }
+
+pub struct ReadMarkCreate {
+    pub vote_id: i32,
+    pub user_id: i32,
+    pub version: i64,
+}

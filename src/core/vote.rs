@@ -1,14 +1,14 @@
 use crate::core::db::{Storer, TxStorer, VoteCommon};
 use crate::core::models::VoteCreate;
 use crate::models::option::OptInsert;
-use crate::models::question::QuestionInsertion;
-use crate::models::vote::Vote;
+use crate::models::question::{QuestionInsertion, ReadMarkCreate as QuestionReadMarkCreate};
+use crate::models::vote::{ReadMarkCreate as VoteReadMarkCreate, Vote};
 use crate::{error::Error, models::vote::VoteInsertion};
 
-use super::db::{OptionCommon, QuestionCommon};
+use super::db::{OptionCommon, QuestionCommon, QuestionReadMarkCommon, VoteReadMarkCommon};
 use super::models::VoteQuery;
 
-pub async fn create_vote<T>(mut storer: T, vote: VoteCreate) -> Result<i32, Error>
+pub async fn create_vote<T>(mut storer: T, uid: i32, vote: VoteCreate) -> Result<i32, Error>
 where
     T: TxStorer,
 {
@@ -22,6 +22,7 @@ where
         },
     )
     .await?;
+    VoteReadMarkCommon::insert(&mut storer, VoteReadMarkCreate { vote_id, user_id: uid, version: 1 }).await?;
     for q in vote.questions {
         let qst_id = QuestionCommon::insert(
             &mut storer,
@@ -30,6 +31,15 @@ where
                 type_: q.type_,
                 version: 1,
                 vote_id: vote_id,
+            },
+        )
+        .await?;
+        QuestionReadMarkCommon::insert(
+            &mut storer,
+            QuestionReadMarkCreate {
+                question_id: qst_id,
+                user_id: uid,
+                version: 1,
             },
         )
         .await?;
@@ -56,4 +66,12 @@ where
     let total = VoteCommon::count(db, &query).await?;
     let votes = VoteCommon::query(db, &query).await?;
     Ok((votes, total))
+}
+
+pub async fn vote_detail<D>(db: &mut D, id: i32) -> Result<Vote, Error>
+where
+    D: Storer,
+{
+    let vote = VoteCommon::get(db, id).await?;
+    Ok(vote)
 }

@@ -2,19 +2,29 @@ use crate::error::Error;
 use crate::models::option::OptInsert;
 use crate::models::{
     organization::{Insert as OrganizationInsert, Organization, OrganizationWithVoteInfo, Query as OrganizationQuery, Update as OrganizationUpdate},
-    question::QuestionInsertion,
+    question::{Query as QuestionQuery, Question, QuestionInsertion, ReadMarkCreate as QuestionReadMarkCreate},
     user::User,
-    vote::{Vote, VoteInsertion},
+    vote::{ReadMarkCreate as VoteReadMarkCreate, Vote, VoteInsertion},
 };
 use std::future::Future;
 use std::pin::Pin;
 
 use super::models::VoteQuery;
 
+pub struct Pagination {
+    pub page: i64,
+    pub size: i64,
+}
+
 pub trait VoteCommon {
     async fn insert(&mut self, data: VoteInsertion) -> Result<i32, Error>;
     async fn query(&mut self, query: &VoteQuery) -> Result<Vec<Vote>, Error>;
     async fn count(&mut self, query: &VoteQuery) -> Result<i64, Error>;
+    async fn get(&mut self, id: i32) -> Result<Vote, Error>;
+}
+
+pub trait VoteReadMarkCommon {
+    async fn insert(&mut self, mark: VoteReadMarkCreate) -> Result<i32, Error>;
 }
 
 pub trait OrganizationCommon {
@@ -36,6 +46,11 @@ pub trait OrganizationCommon {
 
 pub trait QuestionCommon {
     async fn insert(&mut self, question: QuestionInsertion) -> Result<i32, Error>;
+    async fn query(&mut self, query: QuestionQuery, pagination: Pagination) -> Result<Vec<Question>, Error>;
+}
+
+pub trait QuestionReadMarkCommon {
+    async fn insert(&mut self, mark: QuestionReadMarkCreate) -> Result<i32, Error>;
 }
 
 pub trait UserCommon {
@@ -46,7 +61,7 @@ pub trait OptionCommon {
     async fn insert(&mut self, option: OptInsert) -> Result<i32, Error>;
 }
 
-pub trait Common: VoteCommon + OrganizationCommon + UserCommon + QuestionCommon + OptionCommon {}
+pub trait Common: VoteCommon + OrganizationCommon + UserCommon + QuestionCommon + OptionCommon + VoteReadMarkCommon + QuestionReadMarkCommon {}
 
 pub trait DB: Common {
     type Manager: 'static;

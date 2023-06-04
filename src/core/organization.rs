@@ -91,7 +91,7 @@ pub async fn get_organization<D>(db: &mut D, id: i32) -> Result<DBOrganization, 
 where
     D: Storer,
 {
-    let org = db.get(id).await?;
+    let org = OrganizationCommon::get(db, id).await?;
     Ok(org)
 }
 

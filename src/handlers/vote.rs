@@ -19,7 +19,7 @@ use crate::sqlx::PgPool;
 
 pub async fn create(user_info: UserInfo, org_id: Path<(i32,)>, Json(body): Json<VoteCreate>, db: Data<PgPool>) -> Result<Json<CreateResponse>, Error> {
     let tx = PgSqlx::new(db.begin().await?);
-    let vote_id = create_vote(tx, body).await?;
+    let vote_id = create_vote(tx, user_info.id, body).await?;
     Ok(Json(CreateResponse { id: vote_id }))
 }
 
@@ -214,10 +214,10 @@ pub async fn questions(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<PgPo
             q.version, 
             q.vote_id,
             COUNT(distinct a.id) > 0 AS has_answered, 
-            q.version > SUM(qrm.version) AS has_updated
+            q.version > COALESCE(SUM(qrm.version), 0) AS has_updated
         FROM votes AS v
         JOIN questions AS q ON v.id = q.vote_id
-        JOIN question_read_marks AS qrm ON q.id = qrm.question_id AND qrm.user_id = $1
+        LEFT JOIN question_read_marks AS qrm ON q.id = qrm.question_id AND qrm.user_id = $1
         LEFT JOIN options AS op ON q.id = op.question_id
         LEFT JOIN answers AS a ON op.id = a.option_id AND a.user_id = $1
         WHERE v.id = $2
