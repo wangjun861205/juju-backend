@@ -75,7 +75,8 @@ where
         return Err(Error::BusinessError("no permission".into()));
     }
     let org = tx.get_for_update(id).await?;
-    tx.update(
+    OrganizationCommon::update(
+        &mut tx,
         id,
         DBUpdate {
             name: data.name,

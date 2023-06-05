@@ -1,8 +1,9 @@
 use crate::error::Error;
-use crate::models::option::OptInsert;
+use crate::models::option::Insert as OptionInsert;
 use crate::models::{
+    option::{Opt, Query as OptionQuery},
     organization::{Insert as OrganizationInsert, Organization, OrganizationWithVoteInfo, Query as OrganizationQuery, Update as OrganizationUpdate},
-    question::{Query as QuestionQuery, Question, QuestionInsertion, ReadMarkCreate as QuestionReadMarkCreate},
+    question::{Insert as QuestionInsert, Query as QuestionQuery, Question, ReadMarkInsert as QuestionReadMarkInsert, ReadMarkUpdate as QuestionReadMarkUpdate},
     user::User,
     vote::{ReadMarkCreate as VoteReadMarkCreate, Vote, VoteInsertion},
 };
@@ -45,12 +46,17 @@ pub trait OrganizationCommon {
 }
 
 pub trait QuestionCommon {
-    async fn insert(&mut self, question: QuestionInsertion) -> Result<i32, Error>;
+    async fn insert(&mut self, uid: i32, question: QuestionInsert) -> Result<i32, Error>;
     async fn query(&mut self, query: QuestionQuery, pagination: Pagination) -> Result<Vec<Question>, Error>;
+    async fn get(&mut self, uid: i32, id: i32) -> Result<Question, Error>;
+    async fn delete(&mut self, id: i32) -> Result<(), Error>;
+    async fn get_organization_id(&mut self, question_id: i32) -> Result<i32, Error>;
+    async fn is_owner(&mut self, uid: i32, id: i32) -> Result<bool, Error>;
 }
 
 pub trait QuestionReadMarkCommon {
-    async fn insert(&mut self, mark: QuestionReadMarkCreate) -> Result<i32, Error>;
+    async fn insert(&mut self, mark: QuestionReadMarkInsert) -> Result<i32, Error>;
+    async fn update(&mut self, update: QuestionReadMarkUpdate) -> Result<(), Error>;
 }
 
 pub trait UserCommon {
@@ -58,7 +64,9 @@ pub trait UserCommon {
 }
 
 pub trait OptionCommon {
-    async fn insert(&mut self, option: OptInsert) -> Result<i32, Error>;
+    async fn insert(&mut self, option: OptionInsert) -> Result<i32, Error>;
+    async fn query(&mut self, query: OptionQuery) -> Result<Vec<Opt>, Error>;
+    async fn count(&mut self, query: OptionQuery) -> Result<i64, Error>;
 }
 
 pub trait Common: VoteCommon + OrganizationCommon + UserCommon + QuestionCommon + OptionCommon + VoteReadMarkCommon + QuestionReadMarkCommon {}

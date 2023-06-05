@@ -1,3 +1,4 @@
+use crate::models::option::Create as OptCreate;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use sqlx_insert::{table_name, Insertable};
@@ -33,20 +34,34 @@ pub struct Question {
     pub version: i64,
 }
 
-#[derive(Debug, Clone, Deserialize, Insertable)]
+#[derive(Debug, Clone, Deserialize)]
 #[table_name("questions")]
-pub struct QuestionInsertion {
+pub struct Insert {
     pub description: String,
     pub vote_id: i32,
     pub type_: QuestionType,
     pub version: i64,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct Create {
+    pub description: String,
+    pub type_: QuestionType,
+    pub version: i64,
+    pub options: Vec<OptCreate>,
+}
+
 pub struct Query {
     pub vote_id: Option<i32>,
 }
 
-pub struct ReadMarkCreate {
+pub struct ReadMarkInsert {
+    pub question_id: i32,
+    pub user_id: i32,
+    pub version: i64,
+}
+
+pub struct ReadMarkUpdate {
     pub question_id: i32,
     pub user_id: i32,
     pub version: i64,

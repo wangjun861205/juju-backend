@@ -4,6 +4,7 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub struct QuestionCreate {
+    pub uid: i32,
     pub description: String,
     pub type_: QuestionType,
     pub options: Vec<OptCreate>,

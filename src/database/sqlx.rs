@@ -3,10 +3,10 @@ use crate::core::{
     models::VoteQuery,
 };
 use crate::error::Error;
-use crate::models::option::OptInsert;
 use crate::models::{
+    option::{Insert as OptionInsert, Opt, Query as OptionQuery},
     organization::{Organization, OrganizationWithVoteInfo, Query},
-    question::{Query as QuestionQuery, Question, QuestionInsertion, ReadMarkCreate as QuestionReadMarkCreate},
+    question::{Insert as QuestionInsert, Query as QuestionQuery, Question, ReadMarkInsert as QuestionReadMarkInsert, ReadMarkUpdate as QuestionReadMarkUpdate},
     user::User,
 };
 use sqlx::pool::PoolConnection;
@@ -263,9 +263,9 @@ where
     }
 }
 
-impl<'a> Storer for PgSqlx<PoolConnection<Postgres>> {}
+impl Storer for PgSqlx<PoolConnection<Postgres>> {}
 impl<'a> Storer for PgSqlx<Transaction<'a, Postgres>> {}
-impl<'a> Common for PgSqlx<PoolConnection<Postgres>> {}
+impl Common for PgSqlx<PoolConnection<Postgres>> {}
 impl<'a> Common for PgSqlx<Transaction<'a, Postgres>> {}
 
 impl<'a> TxStorer for PgSqlx<Transaction<'a, Postgres>> {
@@ -296,11 +296,12 @@ impl<E> QuestionCommon for PgSqlx<E>
 where
     for<'e> &'e mut E: Executor<'e, Database = Postgres>,
 {
-    async fn insert(&mut self, question: QuestionInsertion) -> Result<i32, Error> {
-        let id = query_scalar("INSERT INTO questions (description, type_, version, vote_id) VALUES ($1, $2, 1, $3) RETURNING id")
+    async fn insert(&mut self, uid: i32, question: QuestionInsert) -> Result<i32, Error> {
+        let id = query_scalar("INSERT INTO questions (description, type_, version, vote_id, owner) VALUES ($1, $2, 1, $3, $4) RETURNING id")
             .bind(question.description)
             .bind(question.type_)
             .bind(question.vote_id)
+            .bind(uid)
             .fetch_one(&mut self.executor)
             .await?;
         Ok(id)
@@ -316,13 +317,56 @@ where
         let questions = q.build_query_as().fetch_all(&mut self.executor).await?;
         Ok(questions)
     }
+
+    async fn get(&mut self, uid: i32, id: i32) -> Result<Question, Error> {
+        let question = query_as(
+            "
+        SELECT 
+            q.*, 
+            COALESCE(qrm.version, 0) < q.version AS has_updated,
+            COUNT(a.id) > 0 AS has_answered
+        FROM questions AS q
+        LEFT JOIN question_read_marks AS qrm ON q.id = qrm.question_id AND qrm.user_id = $1
+        LEFT JOIN options AS o ON o.question_id = q.id
+        LEFT JOIN answers AS a ON a.option_id = o.id AND a.user_id = $1
+        WHERE q.id = $2
+        GROUP BY (q.id, has_updated)",
+        )
+        .bind(uid)
+        .bind(id)
+        .fetch_one(&mut self.executor)
+        .await?;
+        Ok(question)
+    }
+
+    async fn delete(&mut self, id: i32) -> Result<(), Error> {
+        query("DELETE FROM questions WHERE id = $1").bind(id).execute(&mut self.executor).await?;
+        Ok(())
+    }
+
+    async fn get_organization_id(&mut self, question_id: i32) -> Result<i32, Error> {
+        let oid = query_scalar("SELECT o.id FROM organizations AS o JOIN votes AS v ON v.organization_id = o.id JOIN questions AS q ON q.vote_id = v.id WHERE q.id = $1")
+            .bind(question_id)
+            .fetch_one(&mut self.executor)
+            .await?;
+        Ok(oid)
+    }
+
+    async fn is_owner(&mut self, uid: i32, question_id: i32) -> Result<bool, Error> {
+        let is_owner = query_scalar("SELECT EXISTS(SELECT 1 FROM questions WHERE id = $1 AND owner = $2)")
+            .bind(question_id)
+            .bind(uid)
+            .fetch_one(&mut self.executor)
+            .await?;
+        Ok(is_owner)
+    }
 }
 
 impl<E> OptionCommon for PgSqlx<E>
 where
     for<'e> &'e mut E: Executor<'e, Database = Postgres>,
 {
-    async fn insert(&mut self, option: OptInsert) -> Result<i32, Error> {
+    async fn insert(&mut self, option: OptionInsert) -> Result<i32, Error> {
         let id = query_scalar("INSERT INTO options (option, question_id, images) VALUES ($1, $2, $3) RETURNING id")
             .bind(option.option)
             .bind(option.question_id)
@@ -330,6 +374,30 @@ where
             .fetch_one(&mut self.executor)
             .await?;
         Ok(id)
+    }
+
+    async fn query(&mut self, query: OptionQuery) -> Result<Vec<Opt>, Error> {
+        let mut q = QueryBuilder::new("SELECT * FROM options WHERE 1 = 1");
+        if let Some(question_id) = query.question_id {
+            q.push(" AND question_id = ").push_bind(question_id);
+        }
+        if let Some(limit) = query.limit {
+            q.push(" LIMIT ").push_bind(limit);
+        }
+        if let Some(offset) = query.offset {
+            q.push(" OFFSET ").push_bind(offset);
+        }
+        let opts = q.build_query_as().fetch_all(&mut self.executor).await?;
+        Ok(opts)
+    }
+
+    async fn count(&mut self, query: OptionQuery) -> Result<i64, Error> {
+        let mut q = QueryBuilder::new("SELECT COUNT(id) FROM options WHERE 1 = 1");
+        if let Some(question_id) = query.question_id {
+            q.push(" AND question_id = ").push_bind(question_id);
+        }
+        let (opts,) = q.build_query_as().fetch_one(&mut self.executor).await?;
+        Ok(opts)
     }
 }
 
@@ -352,7 +420,7 @@ impl<E> QuestionReadMarkCommon for PgSqlx<E>
 where
     for<'e> &'e mut E: Executor<'e, Database = Postgres>,
 {
-    async fn insert(&mut self, mark: QuestionReadMarkCreate) -> Result<i32, Error> {
+    async fn insert(&mut self, mark: QuestionReadMarkInsert) -> Result<i32, Error> {
         let id = query_scalar("INSERT INTO question_read_marks (user_id, question_id, version) VALUES ($1, $2, $3) RETURNING id")
             .bind(mark.user_id)
             .bind(mark.question_id)
@@ -360,5 +428,15 @@ where
             .fetch_one(&mut self.executor)
             .await?;
         Ok(id)
+    }
+
+    async fn update(&mut self, update: QuestionReadMarkUpdate) -> Result<(), Error> {
+        query("UPDATE question_read_marks SET version = $1 WHERE user_id = $2 AND question_id = $3")
+            .bind(update.version)
+            .bind(update.user_id)
+            .bind(update.question_id)
+            .execute(&mut self.executor)
+            .await?;
+        Ok(())
     }
 }
