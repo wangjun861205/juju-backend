@@ -1,5 +1,6 @@
 use crate::core::db::{Storer, UserCommon};
 use crate::error::Error;
+use crate::models::user::Profile;
 
 use super::db::OrganizationCommon;
 
@@ -31,4 +32,15 @@ where
         return Ok(Some(u));
     }
     Ok(None)
+}
+
+pub async fn profile<D>(mut db: D, user_id: i32) -> Result<Profile, Error>
+where
+    D: Storer,
+{
+    let user = UserCommon::get(&mut db, user_id).await?;
+    Ok(Profile {
+        nickname: user.nickname,
+        avatar: user.avatar,
+    })
 }

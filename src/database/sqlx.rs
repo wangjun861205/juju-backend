@@ -185,6 +185,11 @@ where
         let user = query_as("SELECT * FROM users WHERE phone = $1").bind(phone).fetch_optional(&mut self.executor).await?;
         Ok(user)
     }
+
+    async fn get(&mut self, id: i32) -> Result<User, Error> {
+        let user = query_as("SELECT * FROM users WHERE id = $1").bind(id).fetch_one(&mut self.executor).await?;
+        Ok(user)
+    }
 }
 
 pub struct PgSqlxManager {

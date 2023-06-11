@@ -78,6 +78,10 @@ async fn main() -> Result<(), std::io::Error> {
                         scope("")
                         .wrap(JWTMiddleware::new(jwt_secret.clone()))
                             .service(
+                                scope("profile")
+                                .route("", get().to(handlers::user::profile))
+                            )
+                            .service(
                                 scope("upload")
                                     .route("", post().to(handlers::upload::create::<storer::LocalStorer>))
                                     .route("", get().to(handlers::upload::fetch)),

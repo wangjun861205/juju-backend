@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use sqlx_insert::{table_name, Insertable};
 
@@ -10,6 +10,7 @@ pub struct User {
     pub email: String,
     pub password: String,
     pub salt: String,
+    pub avatar: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Insertable)]
@@ -20,4 +21,11 @@ pub struct UserInsertion {
     pub phone: String,
     pub password: String,
     pub salt: String,
+    pub avatar: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Profile {
+    pub nickname: String,
+    pub avatar: Option<String>,
 }

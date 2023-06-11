@@ -3,9 +3,10 @@ use sqlx::{query_as, query_scalar, FromRow, PgPool, QueryBuilder};
 
 use crate::actix_web::web::{Json, Query};
 use crate::context::UserInfo;
-use crate::core::user::search_by_phone;
+use crate::core::user::{profile as profile_, search_by_phone};
 use crate::database::sqlx::PgSqlx;
 use crate::error::Error;
+use crate::models::user::Profile;
 use crate::response::List;
 use crate::serde::{Deserialize, Serialize};
 
@@ -96,4 +97,10 @@ pub async fn list(
     list_query.push_bind((page - 1) * size);
     let users: Vec<User> = list_query.build_query_as().fetch_all(&mut conn).await?;
     Ok(Json(List::new(users, total)))
+}
+
+pub async fn profile(me: UserInfo, pool: Data<PgPool>) -> Result<Json<Profile>, Error> {
+    let store = PgSqlx::new(pool.acquire().await?);
+    let p = profile_(store, me.id).await?;
+    Ok(Json(p))
 }

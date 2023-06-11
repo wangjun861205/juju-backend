@@ -61,6 +61,7 @@ pub trait QuestionReadMarkCommon {
 
 pub trait UserCommon {
     async fn get_by_phone(&mut self, phone: String) -> Result<Option<User>, Error>;
+    async fn get(&mut self, id: i32) -> Result<User, Error>;
 }
 
 pub trait OptionCommon {
