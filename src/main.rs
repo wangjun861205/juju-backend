@@ -80,6 +80,7 @@ async fn main() -> Result<(), std::io::Error> {
                             .service(
                                 scope("profile")
                                 .route("", get().to(handlers::user::profile))
+                                .route("", put().to(handlers::user::update_profile))
                             )
                             .service(
                                 scope("upload")

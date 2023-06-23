@@ -1,8 +1,9 @@
 use crate::core::db::{Storer, UserCommon};
 use crate::error::Error;
-use crate::models::user::Profile;
+use crate::models::user::{Patch as UserPatch, Profile};
 
 use super::db::OrganizationCommon;
+use super::models::ProfileUpdate;
 
 #[derive(Debug, Default)]
 pub struct User {
@@ -43,4 +44,21 @@ where
         nickname: user.nickname,
         avatar: user.avatar,
     })
+}
+
+pub async fn update_profile<D>(mut db: D, user_id: i32, profile: ProfileUpdate) -> Result<(), Error>
+where
+    D: Storer,
+{
+    UserCommon::patch(
+        &mut db,
+        user_id,
+        UserPatch {
+            nickname: Some(profile.nickname),
+            avatar: Some(profile.avatar),
+            ..default::default()
+        },
+    )
+    .await?;
+    Ok(())
 }

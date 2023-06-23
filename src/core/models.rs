@@ -4,7 +4,6 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub struct QuestionCreate {
-    pub uid: i32,
     pub description: String,
     pub type_: QuestionType,
     pub options: Vec<OptCreate>,
@@ -47,4 +46,10 @@ pub struct UploadedFileCreate {
 pub struct OptCreate {
     pub option: String,
     pub images: Vec<String>,
+}
+
+#[derive(Debug)]
+pub struct ProfileUpdate {
+    pub nickname: String,
+    pub avatar: Option<String>,
 }

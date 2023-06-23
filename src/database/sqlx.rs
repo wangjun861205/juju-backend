@@ -7,7 +7,7 @@ use crate::models::{
     option::{Insert as OptionInsert, Opt, Query as OptionQuery},
     organization::{Organization, OrganizationWithVoteInfo, Query},
     question::{Insert as QuestionInsert, Query as QuestionQuery, Question, ReadMarkInsert as QuestionReadMarkInsert, ReadMarkUpdate as QuestionReadMarkUpdate},
-    user::User,
+    user::{Patch as UserPath, User},
 };
 use sqlx::pool::PoolConnection;
 use sqlx::{query, query_as, query_scalar, Executor, PgPool, Postgres, QueryBuilder, Transaction};
@@ -189,6 +189,29 @@ where
     async fn get(&mut self, id: i32) -> Result<User, Error> {
         let user = query_as("SELECT * FROM users WHERE id = $1").bind(id).fetch_one(&mut self.executor).await?;
         Ok(user)
+    }
+
+    async fn patch(&mut self, id: i32, user: UserPath) -> Result<(), Error> {
+        query(
+            "UPDATE users SET 
+        nickname = COALESCE($1, nickname),
+        phone = COALESCE($2, phone),
+        email = COALESCE($3, email),
+        password = COALESCE($4, password),
+        salt = COALESCE($5, salt),
+        avatar = COALESCE($6, avatar)
+        WHERE id = $7",
+        )
+        .bind(user.nickname)
+        .bind(user.phone)
+        .bind(user.email)
+        .bind(user.password)
+        .bind(user.salt)
+        .bind(user.avatar)
+        .bind(id)
+        .execute(&mut self.executor)
+        .await?;
+        Ok(())
     }
 }
 

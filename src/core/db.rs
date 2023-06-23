@@ -4,7 +4,7 @@ use crate::models::{
     option::{Opt, Query as OptionQuery},
     organization::{Insert as OrganizationInsert, Organization, OrganizationWithVoteInfo, Query as OrganizationQuery, Update as OrganizationUpdate},
     question::{Insert as QuestionInsert, Query as QuestionQuery, Question, ReadMarkInsert as QuestionReadMarkInsert, ReadMarkUpdate as QuestionReadMarkUpdate},
-    user::User,
+    user::{Patch as UserPatch, User},
     vote::{ReadMarkCreate as VoteReadMarkCreate, Vote, VoteInsertion},
 };
 use std::future::Future;
@@ -62,6 +62,7 @@ pub trait QuestionReadMarkCommon {
 pub trait UserCommon {
     async fn get_by_phone(&mut self, phone: String) -> Result<Option<User>, Error>;
     async fn get(&mut self, id: i32) -> Result<User, Error>;
+    async fn patch(&mut self, id: i32, user: UserPatch) -> Result<(), Error>;
 }
 
 pub trait OptionCommon {

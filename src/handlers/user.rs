@@ -1,9 +1,13 @@
 use actix_web::web::Data;
 use sqlx::{query_as, query_scalar, FromRow, PgPool, QueryBuilder};
 
-use crate::actix_web::web::{Json, Query};
+use crate::actix_web::{
+    web::{Json, Query},
+    HttpResponse,
+};
 use crate::context::UserInfo;
-use crate::core::user::{profile as profile_, search_by_phone};
+use crate::core::models::ProfileUpdate;
+use crate::core::user::{profile as profile_, search_by_phone, update_profile as update_profile_};
 use crate::database::sqlx::PgSqlx;
 use crate::error::Error;
 use crate::models::user::Profile;
@@ -103,4 +107,18 @@ pub async fn profile(me: UserInfo, pool: Data<PgPool>) -> Result<Json<Profile>, 
     let store = PgSqlx::new(pool.acquire().await?);
     let p = profile_(store, me.id).await?;
     Ok(Json(p))
+}
+
+pub async fn update_profile(me: UserInfo, Json(p): Json<Profile>, pool: Data<PgPool>) -> Result<HttpResponse, Error> {
+    let store = PgSqlx::new(pool.acquire().await?);
+    update_profile_(
+        store,
+        me.id,
+        ProfileUpdate {
+            nickname: p.nickname,
+            avatar: p.avatar,
+        },
+    )
+    .await?;
+    Ok(HttpResponse::Ok().finish())
 }
