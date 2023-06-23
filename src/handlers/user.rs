@@ -1,16 +1,16 @@
 use actix_web::web::Data;
-use sqlx::{query_as, query_scalar, FromRow, PgPool, QueryBuilder};
+use sqlx::{FromRow, PgPool, QueryBuilder};
 
 use crate::actix_web::{
     web::{Json, Query},
     HttpResponse,
 };
 use crate::context::UserInfo;
-use crate::core::models::ProfileUpdate;
+use crate::core::models::user::ProfileUpdate;
 use crate::core::user::{profile as profile_, search_by_phone, update_profile as update_profile_};
+use crate::database::models::user::Profile;
 use crate::database::sqlx::PgSqlx;
 use crate::error::Error;
-use crate::models::user::Profile;
 use crate::response::List;
 use crate::serde::{Deserialize, Serialize};
 

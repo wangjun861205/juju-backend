@@ -29,7 +29,6 @@ mod context;
 mod error;
 mod handlers;
 mod middlewares;
-pub mod models;
 pub mod privilege;
 pub mod request;
 pub mod response;

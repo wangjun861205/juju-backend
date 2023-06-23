@@ -1,14 +1,14 @@
-use crate::core::{
-    db::{Common, Manager, OptionCommon, OrganizationCommon, Pagination, QuestionCommon, QuestionReadMarkCommon, Storer, TxStorer, UserCommon, VoteCommon, VoteReadMarkCommon},
-    models::VoteQuery,
-};
-use crate::error::Error;
-use crate::models::{
+use crate::core::db::{Common, Manager, OptionCommon, OrganizationCommon, QuestionCommon, QuestionReadMarkCommon, Storer, TxStorer, UserCommon, VoteCommon, VoteReadMarkCommon};
+use crate::core::models::vote::VoteVisibility;
+use crate::database::models::{
+    common::Pagination,
     option::{Insert as OptionInsert, Opt, Query as OptionQuery},
-    organization::{Organization, OrganizationWithVoteInfo, Query},
+    organization::{Insert as OrganizationInsert, Organization, OrganizationWithVoteInfo, Query as OrganizationQuery, Update as OrganizationUpdate},
     question::{Insert as QuestionInsert, Query as QuestionQuery, Question, ReadMarkInsert as QuestionReadMarkInsert, ReadMarkUpdate as QuestionReadMarkUpdate},
     user::{Patch as UserPath, User},
+    vote::{Insert as VoteInsert, Query as VoteQuery, ReadMarkInsert as VoteReadMarkInsert, Vote},
 };
+use crate::error::Error;
 use sqlx::pool::PoolConnection;
 use sqlx::{query, query_as, query_scalar, Executor, PgPool, Postgres, QueryBuilder, Transaction};
 
@@ -41,7 +41,7 @@ where
         Ok(())
     }
 
-    async fn insert(&mut self, data: crate::models::organization::Insert) -> Result<i32, Error> {
+    async fn insert(&mut self, data: OrganizationInsert) -> Result<i32, Error> {
         let id = query_scalar("INSERT INTO organizations (name, version) VALUES ($1, $2, $3) RETURNING id")
             .bind(data.name)
             .bind(data.version)
@@ -51,7 +51,7 @@ where
         Ok(id)
     }
 
-    async fn update(&mut self, id: i32, data: crate::models::organization::Update) -> Result<(), Error> {
+    async fn update(&mut self, id: i32, data: OrganizationUpdate) -> Result<(), Error> {
         query("UPDATE organizations SET name = $1, version = $2 WHERE id = $3")
             .bind(data.name)
             .bind(data.version)
@@ -61,7 +61,7 @@ where
         Ok(())
     }
 
-    async fn count(&mut self, param: Query) -> Result<i64, Error> {
+    async fn count(&mut self, param: OrganizationQuery) -> Result<i64, Error> {
         let total = query_scalar(
             "
         SELECT COUNT(DISTINCT id) 
@@ -78,7 +78,7 @@ where
         Ok(total)
     }
 
-    async fn query(&mut self, param: Query, page: i64, size: i64) -> Result<Vec<OrganizationWithVoteInfo>, Error> {
+    async fn query(&mut self, param: OrganizationQuery, page: i64, size: i64) -> Result<Vec<OrganizationWithVoteInfo>, Error> {
         let organizations = query_as(
             "
         SELECT 
@@ -239,7 +239,7 @@ impl<E> VoteCommon for PgSqlx<E>
 where
     for<'e> &'e mut E: Executor<'e, Database = Postgres>,
 {
-    async fn insert(&mut self, data: crate::models::vote::VoteInsertion) -> Result<i32, Error> {
+    async fn insert(&mut self, data: VoteInsert) -> Result<i32, Error> {
         let id = query_scalar("INSERT INTO votes (name, deadline, organization_id, visibility) VALUES ($1, $2, $3, $4) RETURNING id")
             .bind(data.name)
             .bind(data.deadline)
@@ -257,7 +257,7 @@ where
         FROM votes 
         WHERE 1 = 1",
         );
-        if let Some(oid) = query.organization_id {
+        if let Some(oid) = query.organization_id_eq {
             stmt.push(" AND organization_id = ");
             stmt.push_bind(oid);
         }
@@ -265,7 +265,7 @@ where
         Ok(n)
     }
 
-    async fn query(&mut self, query: &VoteQuery) -> Result<Vec<crate::models::vote::Vote>, Error> {
+    async fn query(&mut self, query: &VoteQuery, pagination: Option<Pagination>) -> Result<Vec<Vote>, Error> {
         let mut stmt = QueryBuilder::new(
             "SELECT
             v.*,
@@ -276,16 +276,17 @@ where
         );
         stmt.push_bind(query.uid);
         stmt.push(" WHERE 1 = 1");
-        if let Some(oid) = query.organization_id {
+        if let Some(oid) = query.organization_id_eq {
             stmt.push(" AND v.organization_id = ").push_bind(oid);
         }
-        stmt.push(" LIMIT ").push_bind(query.size);
-        stmt.push(" OFFSET ").push_bind((query.page - 1) * query.size);
+        if let Some(page) = pagination {
+            stmt.push(page.to_sql_clause());
+        }
         let votes = stmt.build_query_as().fetch_all(&mut self.executor).await?;
         Ok(votes)
     }
 
-    async fn get(&mut self, id: i32) -> Result<crate::models::vote::Vote, Error> {
+    async fn get(&mut self, id: i32) -> Result<Vote, Error> {
         let vote = query_as("SELECT * FROM votes WHERE id = $1").bind(id).fetch_one(&mut self.executor).await?;
         Ok(vote)
     }
@@ -335,13 +336,14 @@ where
         Ok(id)
     }
 
-    async fn query(&mut self, query: QuestionQuery, pagination: Pagination) -> Result<Vec<Question>, Error> {
+    async fn query(&mut self, query: QuestionQuery, pagination: Option<Pagination>) -> Result<Vec<Question>, Error> {
         let mut q = QueryBuilder::new("SELECT * FROM questions WHERE 1 = 1");
         if let Some(vote_id) = query.vote_id {
             q.push(" AND vote_id = ").push_bind(vote_id);
         }
-        q.push(" LIMIT ").push_bind(pagination.size);
-        q.push(" OFFSET ").push_bind((pagination.page - 1) * pagination.size);
+        if let Some(page) = pagination {
+            q.push(page.to_sql_clause());
+        }
         let questions = q.build_query_as().fetch_all(&mut self.executor).await?;
         Ok(questions)
     }
@@ -433,7 +435,7 @@ impl<E> VoteReadMarkCommon for PgSqlx<E>
 where
     for<'e> &'e mut E: Executor<'e, Database = Postgres>,
 {
-    async fn insert(&mut self, mark: crate::models::vote::ReadMarkCreate) -> Result<i32, Error> {
+    async fn insert(&mut self, mark: VoteReadMarkInsert) -> Result<i32, Error> {
         let id = query_scalar("INSERT INTO vote_read_marks (user_id, vote_id, version) VALUES ($1, $2, $3) RETURNING id")
             .bind(mark.user_id)
             .bind(mark.vote_id)

@@ -4,13 +4,13 @@ use sqlx::{query, query_as, query_scalar, PgPool, QueryBuilder};
 
 use crate::actix_web::web::{Data, Json, Path, Query};
 use crate::context::UserInfo;
-use crate::core::models::VoteQuery;
+use crate::core::models::vote::VoteQuery;
 use crate::core::organization::delete_organization as delete_organization_core;
+use crate::database::models::organization::OrganizationWithVoteInfo;
+use crate::database::models::{organization::Organization, vote::Vote};
 use crate::database::sqlx::PgSqlx;
 use crate::error::Error;
 use crate::handlers::user::User;
-use crate::models::organization::OrganizationWithVoteInfo;
-use crate::models::{organization::Organization, vote::Vote};
 use crate::request::Pagination;
 use crate::response::CreateResponse;
 use crate::serde::{Deserialize, Serialize};

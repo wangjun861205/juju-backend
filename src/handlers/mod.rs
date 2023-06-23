@@ -28,12 +28,11 @@ use crate::{
     impls::tokener::jwt::JWT,
 };
 
+use crate::database::models::user::User;
 use crate::dotenv;
 use crate::error::Error;
 use crate::hex::ToHex;
-use crate::jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use crate::middlewares::jwt::{Claim, JWT_SECRET, JWT_TOKEN};
-use crate::models::user::User;
 use crate::rand::thread_rng;
 use crate::serde::Deserialize;
 use crate::sha2::{Digest, Sha256};

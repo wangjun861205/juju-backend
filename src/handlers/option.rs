@@ -9,7 +9,7 @@ use crate::serde::Serialize;
 use crate::sqlx::{FromRow, PgPool};
 use crate::{
     actix_web::web::{Data, Json, Path},
-    models::question::QuestionType,
+    core::models::question::QuestionType,
 };
 
 #[derive(Debug, Serialize, FromRow)]

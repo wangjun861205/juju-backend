@@ -1,9 +1,9 @@
 use crate::core::db::{Storer, UserCommon};
+use crate::database::models::user::{Patch as UserPatch, Profile};
 use crate::error::Error;
-use crate::models::user::{Patch as UserPatch, Profile};
 
 use super::db::OrganizationCommon;
-use super::models::ProfileUpdate;
+use crate::core::models::user::ProfileUpdate;
 
 #[derive(Debug, Default)]
 pub struct User {

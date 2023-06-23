@@ -2,7 +2,6 @@ use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::types::PgRange, FromRow};
 use sqlx_insert::{table_name, Insertable};
-use std::ops::Bound;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Date {

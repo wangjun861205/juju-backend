@@ -20,3 +20,4 @@ pub struct JoinApplication {
 pub struct JoinApplicationInsert {
     pub organization_id: i32,
 }
+

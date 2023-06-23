@@ -7,8 +7,8 @@ use crate::actix_web::{
     HttpResponse,
 };
 use crate::context::UserInfo;
+use crate::core::models::question::QuestionType;
 use crate::error::Error;
-use crate::models::question::QuestionType;
 use crate::serde::Serialize;
 use crate::sqlx::{query, query_as, FromRow, PgPool, QueryBuilder};
 
@@ -61,7 +61,7 @@ pub struct OptionItem {
 
 #[derive(Debug, Serialize)]
 pub struct AnswerList {
-    question_type: QuestionType,
+    question_type: String,
     options: Vec<OptionItem>,
     answers: Vec<i32>,
 }
@@ -69,7 +69,7 @@ pub struct AnswerList {
 pub async fn answer_list(user_info: UserInfo, qst_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<AnswerList>, Error> {
     let mut tx = db.begin().await?;
     let qst_id = qst_id.into_inner().0;
-    let (question_type,): (QuestionType,) = query_as(
+    let question_type: String = query_scalar(
         r#"
     SELECT q.type_
     FROM users AS u

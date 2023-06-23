@@ -1,25 +1,14 @@
-use crate::models::option::Create as OptCreate;
+use crate::database::models::option::Create as OptCreate;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx_insert::{table_name, Insertable};
-
-#[derive(sqlx::Type)]
-#[sqlx(type_name = "question_type")]
-#[sqlx(rename_all = "UPPERCASE")]
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "UPPERCASE")]
-pub enum QuestionType {
-    #[default]
-    Single,
-    Multi,
-}
+use sqlx_insert::table_name;
 
 #[derive(Debug, Clone, Serialize, FromRow, Default)]
 pub struct QuestionWithStatuses {
     pub id: i32,
     pub description: String,
     pub vote_id: i32,
-    pub type_: QuestionType,
+    pub type_: String,
     pub version: i64,
     pub has_answered: bool,
     pub has_updated: bool,
@@ -30,7 +19,7 @@ pub struct Question {
     pub id: i32,
     pub description: String,
     pub vote_id: i32,
-    pub type_: QuestionType,
+    pub type_: String,
     pub version: i64,
 }
 
@@ -39,14 +28,14 @@ pub struct Question {
 pub struct Insert {
     pub description: String,
     pub vote_id: i32,
-    pub type_: QuestionType,
+    pub type_: String,
     pub version: i64,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Create {
     pub description: String,
-    pub type_: QuestionType,
+    pub type_: String,
     pub version: i64,
     pub options: Vec<OptCreate>,
 }

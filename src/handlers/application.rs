@@ -7,8 +7,8 @@ use sqlx::{query, PgPool};
 
 use crate::{
     context::UserInfo,
+    database::models::application::{ApplicationStatus, JoinApplicationInsert},
     error::Error,
-    models::application::{ApplicationStatus, JoinApplicationInsert},
 };
 
 pub async fn create_join_application(user_info: UserInfo, Json(data): Json<JoinApplicationInsert>, db: Data<PgPool>) -> Result<HttpResponse, Error> {

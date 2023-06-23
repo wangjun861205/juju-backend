@@ -1,11 +1,10 @@
 use crate::core::db::Storer;
-use crate::models::organization::Organization;
 use crate::{
-    error::Error,
-    models::{
+    database::models::{
         option::Insert as OptionInsert,
         question::{Create as QuestionCreate, Insert as QuestionInsert, Question, ReadMarkInsert as QuestionReadMarkInsert, ReadMarkUpdate as QuestionReadMarkUpdate},
     },
+    error::Error,
 };
 
 use super::db::{OptionCommon, OrganizationCommon, QuestionCommon, QuestionReadMarkCommon};

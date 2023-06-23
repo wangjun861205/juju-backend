@@ -1,12 +1,16 @@
 use crate::core::db::{Storer, TxStorer, VoteCommon};
-use crate::core::models::VoteCreate;
-use crate::models::option::Insert as OptionInsert;
-use crate::models::question::{Insert as QuestionInsert, ReadMarkInsert as QuestionReadMarkInsert};
-use crate::models::vote::{ReadMarkCreate as VoteReadMarkCreate, Vote};
-use crate::{error::Error, models::vote::VoteInsertion};
+use crate::core::models::vote::{VoteCreate, VoteQuery, VoteVisibility};
+use crate::database::models::common::Pagination;
+use crate::error::Error;
+
+use crate::database::models::{
+    option::Insert as OptionInsert,
+    question::{Insert as QuestionInsert, ReadMarkInsert as QuestionReadMarkInsert},
+    vote::{Insert as VoteInsert, Query as DBVoteQuery, ReadMarkInsert as VoteReadMarkInsert, Vote},
+};
 
 use super::db::{OptionCommon, QuestionCommon, QuestionReadMarkCommon, VoteReadMarkCommon};
-use super::models::VoteQuery;
+use super::models::question::QuestionType;
 
 pub async fn create_vote<T>(mut storer: T, uid: i32, vote: VoteCreate) -> Result<i32, Error>
 where
@@ -15,16 +19,20 @@ where
     // 创建投票
     let vote_id = VoteCommon::insert(
         &mut storer,
-        VoteInsertion {
+        VoteInsert {
             name: vote.name,
             deadline: vote.deadline,
-            visibility: vote.visibility,
+            visibility: match vote.visibility {
+                VoteVisibility::Public => "Public".into(),
+                VoteVisibility::Organization => "Organization".into(),
+                VoteVisibility::WhiteList => "WhiteList".into(),
+            },
             organization_id: vote.organization_id,
         },
     )
     .await?;
     // 创建投票阅读标记
-    VoteReadMarkCommon::insert(&mut storer, VoteReadMarkCreate { vote_id, user_id: uid, version: 1 }).await?;
+    VoteReadMarkCommon::insert(&mut storer, VoteReadMarkInsert { vote_id, user_id: uid, version: 1 }).await?;
     for q in vote.questions {
         // 创建问题
         let qst_id = QuestionCommon::insert(
@@ -32,7 +40,10 @@ where
             uid,
             QuestionInsert {
                 description: q.description,
-                type_: q.type_,
+                type_: match q.type_ {
+                    QuestionType::Multi => "Multi".into(),
+                    QuestionType::Single => "Single".into(),
+                },
                 version: 1,
                 vote_id,
             },
@@ -69,8 +80,23 @@ pub async fn query_votes<D>(db: &mut D, query: VoteQuery) -> Result<(Vec<Vote>, 
 where
     D: Storer,
 {
-    let total = VoteCommon::count(db, &query).await?;
-    let votes = VoteCommon::query(db, &query).await?;
+    let total = VoteCommon::count(
+        db,
+        &DBVoteQuery {
+            uid: query.uid,
+            organization_id_eq: query.organization_id,
+        },
+    )
+    .await?;
+    let votes = VoteCommon::query(
+        db,
+        &DBVoteQuery {
+            uid: query.uid,
+            organization_id_eq: query.organization_id,
+        },
+        Some(Pagination::new(query.size, Some((query.page - 1) * query.size))),
+    )
+    .await?;
     Ok((votes, total))
 }
 

@@ -1,18 +1,18 @@
-use sqlx::{query, query_as, FromRow, Postgres, QueryBuilder, Transaction};
+use sqlx::{query, query_as, FromRow};
 
 use crate::actix_web::web::{Data, Json, Path};
 
 use crate::chrono::NaiveDate;
 use crate::context::UserInfo;
-use crate::core::models::VoteCreate;
+use crate::core::models::vote::VoteCreate;
 use crate::core::vote::create_vote;
-use crate::database::sqlx::PgSqlx;
-use crate::error::Error;
-use crate::models::{
+use crate::database::models::{
     date::Date,
     question::{Question, QuestionWithStatuses},
     vote::Vote,
 };
+use crate::database::sqlx::PgSqlx;
+use crate::error::Error;
 use crate::response::{CreateResponse, DeleteResponse, List, UpdateResponse};
 use crate::serde::{Deserialize, Serialize};
 use crate::sqlx::PgPool;
@@ -229,14 +229,3 @@ pub async fn questions(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<PgPo
     .await?;
     Ok(Json(List::new(list, total)))
 }
-
-// SELECT
-//     v.id,
-//     v.name,
-//     v.version > vrm.version,
-//     bool_or(q.version > qrm.version)
-// FROM votes AS v
-// JOIN vote_read_marks AS vrm ON v.id = vrm.vote_id
-// JOIN questions AS q ON v.id = q.vote_id
-// JOIN question_read_marks AS qrm ON q.id = qrm.question_id
-// GROUP BY v.id, v.name, v.version > vrm.version

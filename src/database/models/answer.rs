@@ -11,7 +11,7 @@ pub struct Answer {
 
 #[derive(Debug, Clone, Deserialize, Insertable)]
 #[table_name("answers")]
-pub struct AnswerInsertion {
+pub struct Insert {
     pub user_id: i32,
     pub option_id: i32,
 }

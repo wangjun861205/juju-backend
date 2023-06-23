@@ -1,30 +1,25 @@
-use crate::request::Pagination;
 use actix_web::http::StatusCode;
-use actix_web::web::Query;
 use actix_web::HttpResponse;
-use sqlx::QueryBuilder;
 
 use crate::context::UserInfo;
+use crate::database::models::question::Create as QuestionCreate;
 use crate::database::sqlx::PgSqlx;
 use crate::error::Error;
-use crate::models::question::Create as QuestionCreate;
 use crate::{
     actix_web::web::{Data, Json, Path},
-    response::{CreateResponse, DeleteResponse},
+    response::CreateResponse,
 };
 
 use crate::core::db::TxStorer;
 use crate::core::{
+    models::question::QuestionType,
     option::options_of_question,
     question::{create_question, delete_question, question_detail},
 };
-use crate::models::{
-    option::Opt,
-    question::{Question, QuestionType},
-};
+use crate::database::models::{option::Opt, question::Question};
 use crate::response::List;
 use crate::serde::{Deserialize, Serialize};
-use crate::sqlx::{query, query_as, query_scalar, FromRow, PgPool};
+use crate::sqlx::{query_as, query_scalar, FromRow, PgPool};
 
 #[derive(Debug, Deserialize)]
 pub struct QuestionInsertion {
@@ -53,7 +48,7 @@ pub struct Item {
 pub struct QuestionDetail {
     id: i32,
     description: String,
-    type_: QuestionType,
+    type_: String,
     opts: Vec<Opt>,
 }
 
@@ -76,7 +71,7 @@ pub async fn delete(user_info: UserInfo, qst_id: Path<(i32,)>, db: Data<PgPool>)
 struct QuestionWithOptions {
     question_id: i32,
     question_description: String,
-    question_type: QuestionType,
+    question_type: String,
     option_id: i32,
     option_option: String,
 }

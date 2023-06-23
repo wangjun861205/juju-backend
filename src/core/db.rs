@@ -1,31 +1,24 @@
-use crate::error::Error;
-use crate::models::option::Insert as OptionInsert;
-use crate::models::{
-    option::{Opt, Query as OptionQuery},
+use crate::database::models::{
+    common::Pagination,
+    option::{Insert as OptionInsert, Opt, Query as OptionQuery},
     organization::{Insert as OrganizationInsert, Organization, OrganizationWithVoteInfo, Query as OrganizationQuery, Update as OrganizationUpdate},
     question::{Insert as QuestionInsert, Query as QuestionQuery, Question, ReadMarkInsert as QuestionReadMarkInsert, ReadMarkUpdate as QuestionReadMarkUpdate},
     user::{Patch as UserPatch, User},
-    vote::{ReadMarkCreate as VoteReadMarkCreate, Vote, VoteInsertion},
+    vote::{Insert as VoteInsert, Query as VoteQuery, ReadMarkInsert as VoteReadMarkInsert, Vote},
 };
+use crate::error::Error;
 use std::future::Future;
 use std::pin::Pin;
 
-use super::models::VoteQuery;
-
-pub struct Pagination {
-    pub page: i64,
-    pub size: i64,
-}
-
 pub trait VoteCommon {
-    async fn insert(&mut self, data: VoteInsertion) -> Result<i32, Error>;
-    async fn query(&mut self, query: &VoteQuery) -> Result<Vec<Vote>, Error>;
+    async fn insert(&mut self, data: VoteInsert) -> Result<i32, Error>;
+    async fn query(&mut self, query: &VoteQuery, pagination: Option<Pagination>) -> Result<Vec<Vote>, Error>;
     async fn count(&mut self, query: &VoteQuery) -> Result<i64, Error>;
     async fn get(&mut self, id: i32) -> Result<Vote, Error>;
 }
 
 pub trait VoteReadMarkCommon {
-    async fn insert(&mut self, mark: VoteReadMarkCreate) -> Result<i32, Error>;
+    async fn insert(&mut self, mark: VoteReadMarkInsert) -> Result<i32, Error>;
 }
 
 pub trait OrganizationCommon {
@@ -47,7 +40,7 @@ pub trait OrganizationCommon {
 
 pub trait QuestionCommon {
     async fn insert(&mut self, uid: i32, question: QuestionInsert) -> Result<i32, Error>;
-    async fn query(&mut self, query: QuestionQuery, pagination: Pagination) -> Result<Vec<Question>, Error>;
+    async fn query(&mut self, query: QuestionQuery, pagination: Option<Pagination>) -> Result<Vec<Question>, Error>;
     async fn get(&mut self, uid: i32, id: i32) -> Result<Question, Error>;
     async fn delete(&mut self, id: i32) -> Result<(), Error>;
     async fn get_organization_id(&mut self, question_id: i32) -> Result<i32, Error>;

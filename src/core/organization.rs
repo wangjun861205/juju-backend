@@ -2,8 +2,8 @@ use std::fmt::Debug;
 
 use serde::Deserialize;
 
+use crate::database::models::organization::{Insert as DBInsert, Organization as DBOrganization, OrganizationWithVoteInfo as DBOrganizationWithVoteInfo, Query as DBQuery, Update as DBUpdate};
 use crate::error::Error;
-use crate::models::organization::{Insert as DBInsert, Organization as DBOrganization, OrganizationWithVoteInfo as DBOrganizationWithVoteInfo, Query as DBQuery, Update as DBUpdate};
 
 use super::db::{OrganizationCommon, Storer, TxStorer};
 

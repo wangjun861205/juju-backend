@@ -1,6 +1,6 @@
 use crate::core::db::Storer;
+use crate::database::models::option::{Opt, Query as OptionQuery};
 use crate::error::Error;
-use crate::models::option::{Opt, Query as OptionQuery};
 use default;
 
 use super::db::OptionCommon;
