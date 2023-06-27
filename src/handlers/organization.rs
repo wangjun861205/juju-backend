@@ -4,10 +4,11 @@ use sqlx::{query, query_as, query_scalar, PgPool, QueryBuilder};
 
 use crate::actix_web::web::{Data, Json, Path, Query};
 use crate::context::UserInfo;
-use crate::core::models::vote::VoteQuery;
-use crate::core::organization::delete_organization as delete_organization_core;
-use crate::database::models::organization::OrganizationWithVoteInfo;
-use crate::database::models::{organization::Organization, vote::Vote};
+use crate::core::models::{
+    organization::{Organization, OrganizationWithVoteInfo},
+    vote::{Vote, VoteQuery},
+};
+use crate::core::services::{organization::delete_organization as delete_organization_core, vote::query_votes};
 use crate::database::sqlx::PgSqlx;
 use crate::error::Error;
 use crate::handlers::user::User;
@@ -15,7 +16,7 @@ use crate::request::Pagination;
 use crate::response::CreateResponse;
 use crate::serde::{Deserialize, Serialize};
 
-use crate::core::organization::{create_organization, get_organization, joined_organizations, update_organization, Create, Update};
+use crate::core::services::organization::{create_organization, get_organization, joined_organizations, update_organization, Create, Update};
 use crate::handlers::authorizer::Authorizer;
 use crate::response::List;
 
@@ -177,7 +178,7 @@ pub async fn members<T: Authorizer>(me: UserInfo, org_id: Path<(i32,)>, db: Data
 pub async fn votes(user_info: UserInfo, param: Query<Pagination>, org_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<List<Vote>>, Error> {
     let org_id = org_id.into_inner().0;
     let mut pg = PgSqlx::new(db.acquire().await?);
-    let (votes, total) = crate::core::vote::query_votes(
+    let (votes, total) = query_votes(
         &mut pg,
         VoteQuery {
             organization_id: Some(org_id),

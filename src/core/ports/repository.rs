@@ -1,4 +1,5 @@
-use crate::database::models::{
+use crate::core::models::{
+    answer::{Insert as AnswerInsert, Query as AnswerQuery},
     common::Pagination,
     option::{Insert as OptionInsert, Opt, Query as OptionQuery},
     organization::{Insert as OrganizationInsert, Organization, OrganizationWithVoteInfo, Query as OrganizationQuery, Update as OrganizationUpdate},
@@ -14,7 +15,8 @@ pub trait VoteCommon {
     async fn insert(&mut self, data: VoteInsert) -> Result<i32, Error>;
     async fn query(&mut self, query: &VoteQuery, pagination: Option<Pagination>) -> Result<Vec<Vote>, Error>;
     async fn count(&mut self, query: &VoteQuery) -> Result<i64, Error>;
-    async fn get(&mut self, id: i32) -> Result<Vote, Error>;
+    async fn get(&mut self, uid: i32, id: i32) -> Result<Vote, Error>;
+    async fn update_read_mark_version(&mut self, uid: i32, id: i32, version: i64) -> Result<(), Error>;
 }
 
 pub trait VoteReadMarkCommon {
@@ -40,11 +42,13 @@ pub trait OrganizationCommon {
 
 pub trait QuestionCommon {
     async fn insert(&mut self, uid: i32, question: QuestionInsert) -> Result<i32, Error>;
-    async fn query(&mut self, query: QuestionQuery, pagination: Option<Pagination>) -> Result<Vec<Question>, Error>;
+    async fn query(&mut self, uid: i32, query: QuestionQuery, pagination: Option<Pagination>) -> Result<Vec<Question>, Error>;
+    async fn count(&mut self, query: QuestionQuery) -> Result<i64, Error>;
     async fn get(&mut self, uid: i32, id: i32) -> Result<Question, Error>;
     async fn delete(&mut self, id: i32) -> Result<(), Error>;
     async fn get_organization_id(&mut self, question_id: i32) -> Result<i32, Error>;
     async fn is_owner(&mut self, uid: i32, id: i32) -> Result<bool, Error>;
+    async fn is_belongs_to_vote(&mut self, vote_id: i32, ids: Vec<i32>) -> Result<bool, Error>;
 }
 
 pub trait QuestionReadMarkCommon {
@@ -62,9 +66,17 @@ pub trait OptionCommon {
     async fn insert(&mut self, option: OptionInsert) -> Result<i32, Error>;
     async fn query(&mut self, query: OptionQuery) -> Result<Vec<Opt>, Error>;
     async fn count(&mut self, query: OptionQuery) -> Result<i64, Error>;
+    async fn count_question(&mut self, query: OptionQuery) -> Result<i64, Error>;
+    async fn is_belongs_to_question(&mut self, question_id: i32, ids: Vec<i32>) -> Result<bool, Error>;
 }
 
-pub trait Common: VoteCommon + OrganizationCommon + UserCommon + QuestionCommon + OptionCommon + VoteReadMarkCommon + QuestionReadMarkCommon {}
+pub trait AnswerCommon {
+    async fn insert(&mut self, answer: AnswerInsert) -> Result<i32, Error>;
+    async fn bulk_insert(&mut self, answers: Vec<AnswerInsert>) -> Result<(), Error>;
+    async fn delete(&mut self, query: AnswerQuery) -> Result<i32, Error>;
+}
+
+pub trait Common: VoteCommon + OrganizationCommon + UserCommon + QuestionCommon + OptionCommon + VoteReadMarkCommon + QuestionReadMarkCommon + AnswerCommon {}
 
 pub trait DB: Common {
     type Manager: 'static;
@@ -73,17 +85,17 @@ pub trait DB: Common {
         F: FnOnce(Self::Manager) -> Pin<Box<dyn Future<Output = Result<R, Error>>>>;
 }
 
-pub trait Storer: Common {}
+pub trait Store: Common {}
 
-pub trait TxStorer: Storer {
+pub trait TxStore: Store {
     async fn commit(self) -> Result<(), Error>;
     async fn rollback(self) -> Result<(), Error>;
 }
 
 pub trait Manager<'m, S, T>
 where
-    S: Storer,
-    T: TxStorer,
+    S: Store,
+    T: TxStore,
 {
     async fn db(&'m self) -> Result<S, Error>;
     async fn tx(&'m self) -> Result<T, Error>;

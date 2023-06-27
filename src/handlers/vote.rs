@@ -5,19 +5,17 @@ use crate::actix_web::web::{Data, Json, Path};
 use crate::chrono::NaiveDate;
 use crate::context::UserInfo;
 use crate::core::models::vote::VoteCreate;
-use crate::core::vote::create_vote;
-use crate::database::models::{
-    date::Date,
-    question::{Question, QuestionWithStatuses},
-    vote::Vote,
-};
+use crate::core::models::{date::Date, question::Question, vote::Vote};
+use crate::core::ports::repository::TxStore;
+use crate::core::services::question::{question_detail, questions_with_in_vote};
+use crate::core::services::vote::{create_vote, vote_detail};
 use crate::database::sqlx::PgSqlx;
 use crate::error::Error;
 use crate::response::{CreateResponse, DeleteResponse, List, UpdateResponse};
 use crate::serde::{Deserialize, Serialize};
 use crate::sqlx::PgPool;
 
-pub async fn create(user_info: UserInfo, org_id: Path<(i32,)>, Json(body): Json<VoteCreate>, db: Data<PgPool>) -> Result<Json<CreateResponse>, Error> {
+pub async fn create(user_info: UserInfo, Json(body): Json<VoteCreate>, db: Data<PgPool>) -> Result<Json<CreateResponse>, Error> {
     let tx = PgSqlx::new(db.begin().await?);
     let vote_id = create_vote(tx, user_info.id, body).await?;
     Ok(Json(CreateResponse { id: vote_id }))
@@ -74,33 +72,10 @@ struct VoteDetail {
 
 pub async fn detail(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<Vote>, Error> {
     let vote_id = vote_id.into_inner().0;
-    let mut tx = db.begin().await?;
-    let vote: Vote = query_as(
-        "
-    SELECT 
-        v.*,
-        CASE WHEN v.deadline < current_date THEN 'EXPIRED' ELSE 'COLLECTING' END AS status,
-        v.version > vrm.version AS has_updated
-    FROM votes AS v 
-    JOIN vote_read_marks AS vrm ON v.id = vrm.vote_id
-    WHERE vrm.user_id = $1
-    AND v.id = $2
-    FOR SHARE",
-    )
-    .bind(user_info.id)
-    .bind(vote_id)
-    .fetch_one(&mut tx)
-    .await?;
-    query(
-        "
-    UPDATE vote_read_marks SET version = $1 WHERE user_id = $2 AND vote_id = $3",
-    )
-    .bind(vote.version)
-    .bind(user_info.id)
-    .bind(vote_id)
-    .execute(&mut tx)
-    .await?;
-    tx.commit().await?;
+    let tx = db.begin().await?;
+    let mut store = PgSqlx::new(tx);
+    let vote = vote_detail(&mut store, user_info.id, vote_id).await?;
+    store.commit().await?;
     Ok(Json(vote))
 }
 
@@ -116,9 +91,10 @@ pub struct QuestionReport {
     options: Vec<OptionReport>,
 }
 
-async fn gen_question_report(question_id: i32, db: &Data<PgPool>) -> Result<QuestionReport, Error> {
+async fn gen_question_report(user_info: UserInfo, question_id: i32, db: &Data<PgPool>) -> Result<QuestionReport, Error> {
     let mut conn = db.acquire().await?;
-    let question: Question = query_as("SELECT * FROM questions WHERE id = $1").bind(question_id).fetch_one(&mut conn).await?;
+    let mut store = PgSqlx::new(db.acquire().await?);
+    let question = question_detail(&mut store, user_info.id, question_id).await?;
     let opts = query_as(
         r#"
     select o.option as option, (count(distinct a.id)::float / (count(distinct uo.user_id))::float * 10000)::int as percentage
@@ -159,7 +135,7 @@ pub async fn question_reports(user_info: UserInfo, vote_id: Path<(i32,)>, db: Da
     .await?;
     let mut reports = Vec::new();
     for (id,) in qids {
-        reports.push(gen_question_report(id, &db).await?)
+        reports.push(gen_question_report(user_info.clone(), id, &db).await?)
     }
 
     Ok(Json(reports))
@@ -192,40 +168,8 @@ pub async fn question_ids(vote_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Jso
     Ok(Json(ids.into_iter().map(|v| v.0).collect()))
 }
 
-pub async fn questions(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<List<QuestionWithStatuses>>, Error> {
+pub async fn questions(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<PgPool>) -> Result<Json<List<Question>>, Error> {
     let vote_id = vote_id.into_inner().0;
-    let mut conn = db.acquire().await?;
-    let (total,): (i64,) = query_as(
-        "
-    SELECT COUNT(DISTINCT q.id)
-    FROM votes AS v
-    JOIN questions AS q ON v.id = q.vote_id
-    WHERE v.id = $1",
-    )
-    .bind(vote_id)
-    .fetch_one(&mut conn)
-    .await?;
-    let list = query_as(
-        "
-        SELECT 
-            q.id, 
-            q.description, 
-            q.type_, 
-            q.version, 
-            q.vote_id,
-            COUNT(distinct a.id) > 0 AS has_answered, 
-            q.version > COALESCE(SUM(qrm.version), 0) AS has_updated
-        FROM votes AS v
-        JOIN questions AS q ON v.id = q.vote_id
-        LEFT JOIN question_read_marks AS qrm ON q.id = qrm.question_id AND qrm.user_id = $1
-        LEFT JOIN options AS op ON q.id = op.question_id
-        LEFT JOIN answers AS a ON op.id = a.option_id AND a.user_id = $1
-        WHERE v.id = $2
-        GROUP BY q.id, q.description, q.type_, q.version, q.vote_id",
-    )
-    .bind(user_info.id)
-    .bind(vote_id)
-    .fetch_all(&mut conn)
-    .await?;
+    let (list, total) = questions_with_in_vote(&mut PgSqlx::new(db.acquire().await?), user_info.id, vote_id).await?;
     Ok(Json(List::new(list, total)))
 }

@@ -1,12 +1,11 @@
-use crate::core::db::Storer;
-use crate::database::models::option::{Opt, Query as OptionQuery};
+use crate::core::models::option::{Opt, Query as OptionQuery};
+use crate::core::ports::repository::{OptionCommon, Store};
 use crate::error::Error;
 use default;
 
-use super::db::OptionCommon;
 pub async fn options_of_question<S>(storer: &mut S, question_id: i32) -> Result<(Vec<Opt>, i64), Error>
 where
-    S: Storer,
+    S: Store,
 {
     let total = OptionCommon::count(
         storer,

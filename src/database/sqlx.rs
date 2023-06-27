@@ -1,6 +1,5 @@
-use crate::core::db::{Common, Manager, OptionCommon, OrganizationCommon, QuestionCommon, QuestionReadMarkCommon, Storer, TxStorer, UserCommon, VoteCommon, VoteReadMarkCommon};
-use crate::core::models::vote::VoteVisibility;
-use crate::database::models::{
+use crate::core::models::{
+    answer::{Insert as AnswerInsert, Query as AnswerQuery},
     common::Pagination,
     option::{Insert as OptionInsert, Opt, Query as OptionQuery},
     organization::{Insert as OrganizationInsert, Organization, OrganizationWithVoteInfo, Query as OrganizationQuery, Update as OrganizationUpdate},
@@ -8,7 +7,11 @@ use crate::database::models::{
     user::{Patch as UserPath, User},
     vote::{Insert as VoteInsert, Query as VoteQuery, ReadMarkInsert as VoteReadMarkInsert, Vote},
 };
+use crate::core::ports::repository::{
+    AnswerCommon, Common, Manager, OptionCommon, OrganizationCommon, QuestionCommon, QuestionReadMarkCommon, Store, TxStore, UserCommon, VoteCommon, VoteReadMarkCommon,
+};
 use crate::error::Error;
+use chrono::NaiveDate;
 use sqlx::pool::PoolConnection;
 use sqlx::{query, query_as, query_scalar, Executor, PgPool, Postgres, QueryBuilder, Transaction};
 
@@ -235,6 +238,8 @@ impl PgSqlxManager {
     }
 }
 
+type VoteRow = (i32, String, Option<NaiveDate>, i32, i64, String, String, bool);
+
 impl<E> VoteCommon for PgSqlx<E>
 where
     for<'e> &'e mut E: Executor<'e, Database = Postgres>,
@@ -269,8 +274,8 @@ where
         let mut stmt = QueryBuilder::new(
             "SELECT
             v.*,
-            CASE WHEN v.version > COALESCE(vrm.version, 0) THEN true ELSE false END AS has_updated,
-            CASE WHEN v.deadline < CURRENT_DATE THEN 'Exprired' ELSE 'Active' END AS status
+            CASE WHEN v.deadline < CURRENT_DATE THEN 'Exprired' ELSE 'Active' END AS status,
+            CASE WHEN v.version > COALESCE(vrm.version, 0) THEN true ELSE false END AS has_updated
         FROM votes AS v
         LEFT JOIN vote_read_marks AS vrm ON v.id = vrm.vote_id AND vrm.user_id = ",
         );
@@ -282,22 +287,66 @@ where
         if let Some(page) = pagination {
             stmt.push(page.to_sql_clause());
         }
-        let votes = stmt.build_query_as().fetch_all(&mut self.executor).await?;
-        Ok(votes)
+        let rows: Vec<VoteRow> = stmt.build_query_as().fetch_all(&mut self.executor).await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| Vote {
+                id: r.0,
+                name: r.1,
+                deadline: r.2,
+                organization_id: r.3,
+                version: r.4,
+                visibility: r.5,
+                status: r.6,
+                has_updated: r.7,
+            })
+            .collect())
     }
 
-    async fn get(&mut self, id: i32) -> Result<Vote, Error> {
-        let vote = query_as("SELECT * FROM votes WHERE id = $1").bind(id).fetch_one(&mut self.executor).await?;
-        Ok(vote)
+    async fn get(&mut self, uid: i32, id: i32) -> Result<Vote, Error> {
+        let (id, name, deadline, organization_id, version, visibility, status, has_updated): (i32, String, Option<NaiveDate>, i32, i64, String, String, bool) = query_as(
+            "
+            SELECT 
+                v.* 
+                CASE WHEN v.deadline < CURRENT_DATE THEN 'Exprired' ELSE 'Active' END AS status,
+                CASE WHEN v.version > COALESCE(vrm.version, 0) THEN true ELSE false END AS has_updated
+            FROM votes AS v
+            LEFT JOIN vote_read_marks AS vrm ON v.id = vrm.vote_id AND vrm.user_id = $1,
+            WHERE id = $2",
+        )
+        .bind(uid)
+        .bind(id)
+        .fetch_one(&mut self.executor)
+        .await?;
+        Ok(Vote {
+            id,
+            name,
+            deadline,
+            organization_id,
+            version,
+            visibility,
+            status,
+            has_updated,
+        })
+    }
+
+    async fn update_read_mark_version(&mut self, uid: i32, id: i32, version: i64) -> Result<(), Error> {
+        query("UPDATE vote_read_marks SET version = $1 WHERE vote_id = $2 AND user_id = $3")
+            .bind(version)
+            .bind(id)
+            .bind(uid)
+            .execute(&mut self.executor)
+            .await?;
+        Ok(())
     }
 }
 
-impl Storer for PgSqlx<PoolConnection<Postgres>> {}
-impl<'a> Storer for PgSqlx<Transaction<'a, Postgres>> {}
+impl Store for PgSqlx<PoolConnection<Postgres>> {}
+impl<'a> Store for PgSqlx<Transaction<'a, Postgres>> {}
 impl Common for PgSqlx<PoolConnection<Postgres>> {}
 impl<'a> Common for PgSqlx<Transaction<'a, Postgres>> {}
 
-impl<'a> TxStorer for PgSqlx<Transaction<'a, Postgres>> {
+impl<'a> TxStore for PgSqlx<Transaction<'a, Postgres>> {
     async fn commit(self) -> Result<(), Error> {
         self.executor.commit().await?;
         Ok(())
@@ -321,6 +370,8 @@ impl<'a> Manager<'a, PgSqlx<PoolConnection<Postgres>>, PgSqlx<Transaction<'a, Po
     }
 }
 
+type QuestionRow = (i32, String, i32, String, i64, bool, bool);
+
 impl<E> QuestionCommon for PgSqlx<E>
 where
     for<'e> &'e mut E: Executor<'e, Database = Postgres>,
@@ -336,20 +387,45 @@ where
         Ok(id)
     }
 
-    async fn query(&mut self, query: QuestionQuery, pagination: Option<Pagination>) -> Result<Vec<Question>, Error> {
-        let mut q = QueryBuilder::new("SELECT * FROM questions WHERE 1 = 1");
-        if let Some(vote_id) = query.vote_id {
-            q.push(" AND vote_id = ").push_bind(vote_id);
-        }
+    async fn query(&mut self, uid: i32, query: QuestionQuery, pagination: Option<Pagination>) -> Result<Vec<Question>, Error> {
+        let mut q = QueryBuilder::new(
+            "
+        SELECT 
+            q.id AS id,
+            q.description AS description,
+            q.vote_id AS vote_id,
+            q.type_ AS type_,
+            q.version AS version,
+            COALESCE(qrm.version, 0) < q.version AS has_updated,
+            COUNT(a.id) > 0 AS has_answered
+        FROM questions AS q
+        LEFT JOIN question_read_marks AS qrm ON q.id = qrm.question_id AND qrm.user_id = $1
+        LEFT JOIN options AS o ON o.question_id = q.id
+        LEFT JOIN answers AS a ON a.option_id = o.id AND a.user_id = $1
+        WHERE $2 IS NULL OR vote_id = $2
+        GROUP BY (q.id, has_updated)
+        ",
+        );
         if let Some(page) = pagination {
             q.push(page.to_sql_clause());
         }
-        let questions = q.build_query_as().fetch_all(&mut self.executor).await?;
-        Ok(questions)
+        let rows: Vec<QuestionRow> = q.build_query_as().bind(uid).bind(query.vote_id_eq).fetch_all(&mut self.executor).await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| Question {
+                id: r.0,
+                description: r.1,
+                vote_id: r.2,
+                type_: r.3,
+                version: r.4,
+                has_updated: r.5,
+                has_answered: r.6,
+            })
+            .collect())
     }
 
     async fn get(&mut self, uid: i32, id: i32) -> Result<Question, Error> {
-        let question = query_as(
+        let (id, description, vote_id, type_, version, has_answered, has_updated): (i32, String, i32, String, i64, bool, bool) = query_as(
             "
         SELECT 
             q.*, 
@@ -366,7 +442,15 @@ where
         .bind(id)
         .fetch_one(&mut self.executor)
         .await?;
-        Ok(question)
+        Ok(Question {
+            id,
+            description,
+            vote_id,
+            type_,
+            version,
+            has_updated,
+            has_answered,
+        })
     }
 
     async fn delete(&mut self, id: i32) -> Result<(), Error> {
@@ -389,6 +473,31 @@ where
             .fetch_one(&mut self.executor)
             .await?;
         Ok(is_owner)
+    }
+
+    async fn is_belongs_to_vote(&mut self, vote_id: i32, ids: Vec<i32>) -> Result<bool, Error> {
+        let is_belongs_to = query_scalar(
+            "WITH v AS (
+            SELECT COALESCE(ARRAY_AGG(v.id), ARRAY[]::integer[]) AS ids 
+            FROM votes AS v
+            JOIN questions AS q ON v.id = q.vote_id
+            WHERE q.id IN $1
+        )
+        SELECT ids = ARRAY[$2] FROM v",
+        )
+        .bind(ids)
+        .bind(vote_id)
+        .fetch_one(&mut self.executor)
+        .await?;
+        Ok(is_belongs_to)
+    }
+
+    async fn count(&mut self, query: QuestionQuery) -> Result<i64, Error> {
+        let count = query_scalar("SELECT COUNT(id) FROM questions WHERE $1 IS NULL OR vote_id = $1")
+            .bind(query.vote_id_eq)
+            .fetch_one(&mut self.executor)
+            .await?;
+        Ok(count)
     }
 }
 
@@ -429,6 +538,39 @@ where
         let (opts,) = q.build_query_as().fetch_one(&mut self.executor).await?;
         Ok(opts)
     }
+
+    async fn count_question(&mut self, query: OptionQuery) -> Result<i64, Error> {
+        let mut q = QueryBuilder::new(
+            "
+        SELECT COUNT(DISTINCT q.id)
+        FROM questions AS q
+        JOIN options AS o ON o.question_id = q.id
+        WHERE 1 = 1",
+        );
+        if let Some(oids) = query.ids {
+            q.push(" AND o.id IN ").push_bind(oids);
+        }
+        let (count,): (i64,) = q.build_query_as().fetch_one(&mut self.executor).await?;
+        Ok(count)
+    }
+
+    async fn is_belongs_to_question(&mut self, question_id: i32, ids: Vec<i32>) -> Result<bool, Error> {
+        let is_in_one: bool = query_scalar(
+            "WITH qs AS (
+            SELECT
+            COALESCE(ARRAY_AGG(DISTINCT q.id)) ids
+            FROM questions AS q
+            JOIN options AS o ON o.question_id = q.id
+            WHERE o.id IN $1
+        )
+        SELECT ids = ARRAY[$2] FROM qs",
+        )
+        .bind(ids)
+        .bind(question_id)
+        .fetch_one(&mut self.executor)
+        .await?;
+        Ok(is_in_one)
+    }
 }
 
 impl<E> VoteReadMarkCommon for PgSqlx<E>
@@ -468,5 +610,56 @@ where
             .execute(&mut self.executor)
             .await?;
         Ok(())
+    }
+}
+
+impl<E> AnswerCommon for PgSqlx<E>
+where
+    for<'e> &'e mut E: Executor<'e, Database = Postgres>,
+{
+    async fn insert(&mut self, answer: AnswerInsert) -> Result<i32, Error> {
+        let id = query_scalar("INSERT INTO answers (user_id, option_id) VALUES ($1, $2) RETURNING id")
+            .bind(answer.user_id)
+            .bind(answer.option_id)
+            .fetch_one(&mut self.executor)
+            .await?;
+        Ok(id)
+    }
+
+    async fn bulk_insert(&mut self, answers: Vec<AnswerInsert>) -> Result<(), Error> {
+        let mut q = QueryBuilder::new(
+            "
+        INSERT INTO answers (user_id, option_id)",
+        );
+        q.push_values(answers, |mut s, a| {
+            s.push_bind(a.user_id).push_bind(a.option_id);
+        })
+        .build()
+        .execute(&mut self.executor)
+        .await?;
+        Ok(())
+    }
+
+    async fn delete(&mut self, query: AnswerQuery) -> Result<i32, Error> {
+        let deleted = query_scalar(
+            "WITH deleted AS (
+                WITH by_question AS (
+                    SELECT q.id 
+                    FROM questions AS q
+                    JOIN options AS o ON o.question_id = q.id
+                    JOIN answers AS a ON a.option_id = o.id
+                    WHERE $1 IS NULL OR q.id = $1
+                )
+                DELETE FROM answers 
+                WHERE ($2 IS NULL OR user_id = $2) AND option_id IN by_question
+                RETURNING id
+            ) 
+            SELECT COUNT(id) FROM deleted",
+        )
+        .bind(query.question_id_eq)
+        .bind(query.user_id_eq)
+        .fetch_one(&mut self.executor)
+        .await?;
+        Ok(deleted)
     }
 }

@@ -1,20 +1,15 @@
-use crate::core::db::{Storer, TxStorer, VoteCommon};
-use crate::core::models::vote::{VoteCreate, VoteQuery, VoteVisibility};
-use crate::database::models::common::Pagination;
-use crate::error::Error;
-
-use crate::database::models::{
+use crate::core::models::{
+    common::Pagination,
     option::Insert as OptionInsert,
-    question::{Insert as QuestionInsert, ReadMarkInsert as QuestionReadMarkInsert},
-    vote::{Insert as VoteInsert, Query as DBVoteQuery, ReadMarkInsert as VoteReadMarkInsert, Vote},
+    question::{Insert as QuestionInsert, QuestionType, ReadMarkInsert as QuestionReadMarkInsert},
+    vote::{Insert as VoteInsert, Query as DBVoteQuery, ReadMarkInsert as VoteReadMarkInsert, Vote, VoteCreate, VoteQuery, VoteVisibility},
 };
-
-use super::db::{OptionCommon, QuestionCommon, QuestionReadMarkCommon, VoteReadMarkCommon};
-use super::models::question::QuestionType;
+use crate::core::ports::repository::{OptionCommon, QuestionCommon, QuestionReadMarkCommon, Store, TxStore, VoteCommon, VoteReadMarkCommon};
+use crate::error::Error;
 
 pub async fn create_vote<T>(mut storer: T, uid: i32, vote: VoteCreate) -> Result<i32, Error>
 where
-    T: TxStorer,
+    T: TxStore,
 {
     // 创建投票
     let vote_id = VoteCommon::insert(
@@ -78,7 +73,7 @@ where
 
 pub async fn query_votes<D>(db: &mut D, query: VoteQuery) -> Result<(Vec<Vote>, i64), Error>
 where
-    D: Storer,
+    D: Store,
 {
     let total = VoteCommon::count(
         db,
@@ -100,10 +95,11 @@ where
     Ok((votes, total))
 }
 
-pub async fn vote_detail<D>(db: &mut D, id: i32) -> Result<Vote, Error>
+pub async fn vote_detail<D>(db: &mut D, uid: i32, id: i32) -> Result<Vote, Error>
 where
-    D: Storer,
+    D: Store,
 {
-    let vote = VoteCommon::get(db, id).await?;
+    let vote = VoteCommon::get(db, uid, id).await?;
+    VoteCommon::update_read_mark_version(db, uid, id, vote.version).await?;
     Ok(vote)
 }

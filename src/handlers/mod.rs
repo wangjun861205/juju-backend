@@ -24,11 +24,11 @@ use crate::{
         web::{Data, Json},
         HttpResponse,
     },
-    core::tokener::Tokener,
+    core::ports::tokener::Tokener,
     impls::tokener::jwt::JWT,
 };
 
-use crate::database::models::user::User;
+use crate::core::models::user::User;
 use crate::dotenv;
 use crate::error::Error;
 use crate::hex::ToHex;

@@ -1,5 +1,5 @@
 use crate::context::UserInfo;
-use crate::core::tokener::{Payload, Tokener};
+use crate::core::ports::tokener::{Payload, Tokener};
 use crate::error::Error;
 use actix_web::dev::{Service, ServiceRequest, Transform};
 use actix_web::HttpMessage;

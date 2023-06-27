@@ -1,9 +1,6 @@
-use crate::core::db::{Storer, UserCommon};
-use crate::database::models::user::{Patch as UserPatch, Profile};
+use crate::core::models::user::{Patch as UserPatch, Profile, ProfileUpdate};
+use crate::core::ports::repository::{OrganizationCommon, Store, UserCommon};
 use crate::error::Error;
-
-use super::db::OrganizationCommon;
-use crate::core::models::user::ProfileUpdate;
 
 #[derive(Debug, Default)]
 pub struct User {
@@ -15,7 +12,7 @@ pub struct User {
 }
 pub async fn search_by_phone<D>(mut db: D, phone: String, org_id: Option<i32>) -> Result<Option<User>, Error>
 where
-    D: Storer,
+    D: Store,
 {
     if let Some(user) = UserCommon::get_by_phone(&mut db, phone).await? {
         let mut u = User {
@@ -37,7 +34,7 @@ where
 
 pub async fn profile<D>(mut db: D, user_id: i32) -> Result<Profile, Error>
 where
-    D: Storer,
+    D: Store,
 {
     let user = UserCommon::get(&mut db, user_id).await?;
     Ok(Profile {
@@ -48,7 +45,7 @@ where
 
 pub async fn update_profile<D>(mut db: D, user_id: i32, profile: ProfileUpdate) -> Result<(), Error>
 where
-    D: Storer,
+    D: Store,
 {
     UserCommon::patch(
         &mut db,

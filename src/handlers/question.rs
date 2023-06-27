@@ -2,7 +2,7 @@ use actix_web::http::StatusCode;
 use actix_web::HttpResponse;
 
 use crate::context::UserInfo;
-use crate::database::models::question::Create as QuestionCreate;
+use crate::core::models::question::Create as QuestionCreate;
 use crate::database::sqlx::PgSqlx;
 use crate::error::Error;
 use crate::{
@@ -10,13 +10,15 @@ use crate::{
     response::CreateResponse,
 };
 
-use crate::core::db::TxStorer;
+use crate::core::models::{option::Opt, question::Question};
+use crate::core::ports::repository::TxStore;
 use crate::core::{
     models::question::QuestionType,
-    option::options_of_question,
-    question::{create_question, delete_question, question_detail},
+    services::{
+        option::options_of_question,
+        question::{create_question, delete_question, question_detail},
+    },
 };
-use crate::database::models::{option::Opt, question::Question};
 use crate::response::List;
 use crate::serde::{Deserialize, Serialize};
 use crate::sqlx::{query_as, query_scalar, FromRow, PgPool};

@@ -6,9 +6,9 @@ use crate::actix_web::{
     HttpResponse,
 };
 use crate::context::UserInfo;
+use crate::core::models::user::Profile;
 use crate::core::models::user::ProfileUpdate;
-use crate::core::user::{profile as profile_, search_by_phone, update_profile as update_profile_};
-use crate::database::models::user::Profile;
+use crate::core::services::user::{profile as profile_, search_by_phone, update_profile as update_profile_};
 use crate::database::sqlx::PgSqlx;
 use crate::error::Error;
 use crate::response::List;

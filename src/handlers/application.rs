@@ -7,7 +7,7 @@ use sqlx::{query, PgPool};
 
 use crate::{
     context::UserInfo,
-    database::models::application::{ApplicationStatus, JoinApplicationInsert},
+    core::models::application::{ApplicationStatus, JoinApplicationInsert},
     error::Error,
 };
 
