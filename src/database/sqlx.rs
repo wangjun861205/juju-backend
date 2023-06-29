@@ -238,7 +238,7 @@ impl PgSqlxManager {
     }
 }
 
-type VoteRow = (i32, String, Option<NaiveDate>, i32, i64, String, String, bool);
+type VoteRow = (i32, String, Option<NaiveDate>, i32, i64, String, String, bool, i32);
 
 impl<E> VoteCommon for PgSqlx<E>
 where
@@ -299,20 +299,24 @@ where
                 visibility: r.5,
                 status: r.6,
                 has_updated: r.7,
+                num_of_questions: r.8,
             })
             .collect())
     }
-
     async fn get(&mut self, uid: i32, id: i32) -> Result<Vote, Error> {
-        let (id, name, deadline, organization_id, version, visibility, status, has_updated): (i32, String, Option<NaiveDate>, i32, i64, String, String, bool) = query_as(
+        let (id, name, deadline, organization_id, version, visibility, status, has_updated, num_of_questions): VoteRow = query_as(
             "
             SELECT 
                 v.* 
                 CASE WHEN v.deadline < CURRENT_DATE THEN 'Exprired' ELSE 'Active' END AS status,
-                CASE WHEN v.version > COALESCE(vrm.version, 0) THEN true ELSE false END AS has_updated
+                CASE WHEN v.version > COALESCE(vrm.version, 0) THEN true ELSE false END AS has_updated,
+                COUNT(q.id) AS num_of_questions
             FROM votes AS v
             LEFT JOIN vote_read_marks AS vrm ON v.id = vrm.vote_id AND vrm.user_id = $1,
-            WHERE id = $2",
+            LEFT JOIN questions AS q ON q.vote_id = v.id
+            WHERE id = $2
+            GROUP BY v.id, status, has_updated
+            ",
         )
         .bind(uid)
         .bind(id)
@@ -327,6 +331,7 @@ where
             visibility,
             status,
             has_updated,
+            num_of_questions,
         })
     }
 
