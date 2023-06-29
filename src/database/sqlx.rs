@@ -275,7 +275,8 @@ where
             "SELECT
             v.*,
             CASE WHEN v.deadline < CURRENT_DATE THEN 'Exprired' ELSE 'Active' END AS status,
-            CASE WHEN v.version > COALESCE(vrm.version, 0) THEN true ELSE false END AS has_updated
+            CASE WHEN v.version > COALESCE(vrm.version, 0) THEN true ELSE false END AS has_updated,
+            COUNT(q.id) AS num_of_questions
         FROM votes AS v
         LEFT JOIN vote_read_marks AS vrm ON v.id = vrm.vote_id AND vrm.user_id = ",
         );
