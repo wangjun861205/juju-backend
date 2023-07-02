@@ -238,7 +238,7 @@ impl PgSqlxManager {
     }
 }
 
-type VoteRow = (i32, String, Option<NaiveDate>, i32, i64, String, String, bool, i32);
+type VoteRow = (i32, String, Option<NaiveDate>, i32, i64, String, String, bool, i64);
 
 impl<E> VoteCommon for PgSqlx<E>
 where
@@ -278,17 +278,15 @@ where
             CASE WHEN v.version > COALESCE(vrm.version, 0) THEN true ELSE false END AS has_updated,
             COUNT(q.id) AS num_of_questions
         FROM votes AS v
-        LEFT JOIN vote_read_marks AS vrm ON v.id = vrm.vote_id AND vrm.user_id = ",
+        LEFT JOIN vote_read_marks AS vrm ON v.id = vrm.vote_id AND vrm.user_id = $1
+        LEFT JOIN questions AS q ON q.vote_id = v.id
+        WHERE $2 IS NULL OR v.organization_id = $2
+        GROUP BY v.id, status, has_updated ",
         );
-        stmt.push_bind(query.uid);
-        stmt.push(" WHERE 1 = 1");
-        if let Some(oid) = query.organization_id_eq {
-            stmt.push(" AND v.organization_id = ").push_bind(oid);
-        }
         if let Some(page) = pagination {
             stmt.push(page.to_sql_clause());
         }
-        let rows: Vec<VoteRow> = stmt.build_query_as().fetch_all(&mut self.executor).await?;
+        let rows: Vec<VoteRow> = stmt.build_query_as().bind(query.uid).bind(query.organization_id_eq).fetch_all(&mut self.executor).await?;
         Ok(rows
             .into_iter()
             .map(|r| Vote {
@@ -308,14 +306,14 @@ where
         let (id, name, deadline, organization_id, version, visibility, status, has_updated, num_of_questions): VoteRow = query_as(
             "
             SELECT 
-                v.* 
+                v.*,
                 CASE WHEN v.deadline < CURRENT_DATE THEN 'Exprired' ELSE 'Active' END AS status,
                 CASE WHEN v.version > COALESCE(vrm.version, 0) THEN true ELSE false END AS has_updated,
                 COUNT(q.id) AS num_of_questions
             FROM votes AS v
-            LEFT JOIN vote_read_marks AS vrm ON v.id = vrm.vote_id AND vrm.user_id = $1,
+            LEFT JOIN vote_read_marks AS vrm ON v.id = vrm.vote_id AND vrm.user_id = $1
             LEFT JOIN questions AS q ON q.vote_id = v.id
-            WHERE id = $2
+            WHERE v.id = $2
             GROUP BY v.id, status, has_updated
             ",
         )
@@ -376,7 +374,7 @@ impl<'a> Manager<'a, PgSqlx<PoolConnection<Postgres>>, PgSqlx<Transaction<'a, Po
     }
 }
 
-type QuestionRow = (i32, String, i32, String, i64, bool, bool);
+type QuestionRow = (i32, String, i32, String, i64, i32, bool, bool, i32, String, i32, Vec<String>);
 
 impl<E> QuestionCommon for PgSqlx<E>
 where
@@ -397,66 +395,98 @@ where
         let mut q = QueryBuilder::new(
             "
         SELECT 
-            q.id AS id,
-            q.description AS description,
-            q.vote_id AS vote_id,
-            q.type_ AS type_,
-            q.version AS version,
+            q.*,
             COALESCE(qrm.version, 0) < q.version AS has_updated,
-            COUNT(a.id) > 0 AS has_answered
+            COUNT(a.id) OVER(PARTITION BY q.id ORDER BY q.id) > 0 AS has_answered,
+            o.id AS option_id,
+            o.option AS option_option,
+            o.question_id AS option_question_id,
+            o.images AS option_images
         FROM questions AS q
         LEFT JOIN question_read_marks AS qrm ON q.id = qrm.question_id AND qrm.user_id = $1
         LEFT JOIN options AS o ON o.question_id = q.id
         LEFT JOIN answers AS a ON a.option_id = o.id AND a.user_id = $1
         WHERE $2 IS NULL OR vote_id = $2
-        GROUP BY (q.id, has_updated)
         ",
         );
         if let Some(page) = pagination {
             q.push(page.to_sql_clause());
         }
         let rows: Vec<QuestionRow> = q.build_query_as().bind(uid).bind(query.vote_id_eq).fetch_all(&mut self.executor).await?;
-        Ok(rows
-            .into_iter()
-            .map(|r| Question {
+        let questions = rows.into_iter().fold(Vec::<Question>::new(), |mut l, r| {
+            if let Some(mut last) = l.pop() {
+                if last.id == r.0 {
+                    last.options.push(Opt {
+                        id: r.8,
+                        option: r.9,
+                        question_id: r.10,
+                        images: r.11,
+                    });
+                    l.push(last);
+                    return l;
+                }
+                l.push(last);
+            }
+            l.push(Question {
                 id: r.0,
                 description: r.1,
                 vote_id: r.2,
                 type_: r.3,
                 version: r.4,
-                has_updated: r.5,
-                has_answered: r.6,
-            })
-            .collect())
+                owner: r.5,
+                has_updated: r.6,
+                has_answered: r.7,
+                options: vec![Opt {
+                    id: r.8,
+                    option: r.9,
+                    question_id: r.10,
+                    images: r.11,
+                }],
+            });
+            l
+        });
+        Ok(questions)
     }
 
     async fn get(&mut self, uid: i32, id: i32) -> Result<Question, Error> {
-        let (id, description, vote_id, type_, version, has_answered, has_updated): (i32, String, i32, String, i64, bool, bool) = query_as(
+        let rows: Vec<QuestionRow> = query_as(
             "
         SELECT 
             q.*, 
             COALESCE(qrm.version, 0) < q.version AS has_updated,
-            COUNT(a.id) > 0 AS has_answered
+            COUNT(a.id) OVER(PARTITION BY q.id ORDER BY q.id) > 0 AS has_answered,
+            o.id AS option_id,
+            o.option AS option_option,
+            o.question_id AS option_question_id,
+            o.images AS option_images
         FROM questions AS q
         LEFT JOIN question_read_marks AS qrm ON q.id = qrm.question_id AND qrm.user_id = $1
         LEFT JOIN options AS o ON o.question_id = q.id
         LEFT JOIN answers AS a ON a.option_id = o.id AND a.user_id = $1
-        WHERE q.id = $2
-        GROUP BY (q.id, has_updated)",
+        WHERE q.id = $2",
         )
         .bind(uid)
         .bind(id)
-        .fetch_one(&mut self.executor)
+        .fetch_all(&mut self.executor)
         .await?;
-        Ok(Question {
-            id,
-            description,
-            vote_id,
-            type_,
-            version,
-            has_updated,
-            has_answered,
-        })
+        let question = rows.into_iter().fold(Question::default(), |mut q, r| {
+            q.id = r.0;
+            q.description = r.1;
+            q.vote_id = r.2;
+            q.type_ = r.3;
+            q.version = r.4;
+            q.owner = r.5;
+            q.has_updated = r.6;
+            q.has_answered = r.7;
+            q.options.push(Opt {
+                id: r.8,
+                option: r.9,
+                question_id: r.10,
+                images: r.11,
+            });
+            q
+        });
+        Ok(question)
     }
 
     async fn delete(&mut self, id: i32) -> Result<(), Error> {

@@ -1,4 +1,4 @@
-use crate::core::models::option::OptCreate;
+use crate::core::models::option::{Opt, OptCreate};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -23,8 +23,10 @@ pub struct Question {
     pub vote_id: i32,
     pub type_: String,
     pub version: i64,
+    pub owner: i32,
     pub has_updated: bool,
     pub has_answered: bool,
+    pub options: Vec<Opt>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

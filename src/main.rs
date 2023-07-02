@@ -149,6 +149,11 @@ async fn main() -> Result<(), std::io::Error> {
                                                 .route("", get().to(handlers::vote::questions))
                                                 .route("report", get().to(handlers::vote::question_reports)),
                                         )
+                                        .service(
+                                            scope("answers")
+                                            .route("", post().to(handlers::vote::submit_answers))
+                                        )
+                                        
                                 ),
                             )
                             .service(

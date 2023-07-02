@@ -1,10 +1,14 @@
-use crate::core::models::{
-    common::Pagination,
-    option::Insert as OptionInsert,
-    question::{Insert as QuestionInsert, QuestionType, ReadMarkInsert as QuestionReadMarkInsert},
-    vote::{Insert as VoteInsert, Query as DBVoteQuery, ReadMarkInsert as VoteReadMarkInsert, Vote, VoteCreate, VoteQuery, VoteVisibility},
-};
 use crate::core::ports::repository::{OptionCommon, QuestionCommon, QuestionReadMarkCommon, Store, TxStore, VoteCommon, VoteReadMarkCommon};
+use crate::core::{
+    models::{
+        answer::{Answer, Insert as AnswerInsert, Submit},
+        common::Pagination,
+        option::Insert as OptionInsert,
+        question::{Insert as QuestionInsert, QuestionType, ReadMarkInsert as QuestionReadMarkInsert},
+        vote::{Insert as VoteInsert, Query as DBVoteQuery, ReadMarkInsert as VoteReadMarkInsert, Vote, VoteCreate, VoteQuery, VoteVisibility},
+    },
+    ports::repository::AnswerCommon,
+};
 use crate::error::Error;
 
 pub async fn create_vote<T>(mut storer: T, uid: i32, vote: VoteCreate) -> Result<i32, Error>
@@ -102,4 +106,17 @@ where
     let vote = VoteCommon::get(db, uid, id).await?;
     VoteCommon::update_read_mark_version(db, uid, id, vote.version).await?;
     Ok(vote)
+}
+
+pub async fn submit_answers<D>(db: &mut D, uid: i32, id: i32, answers: Vec<Submit>) -> Result<(), Error>
+where
+    D: Store,
+{
+    let inserts: Vec<AnswerInsert> = answers
+        .into_iter()
+        .map(|a| a.option_ids.into_iter().map(|o| AnswerInsert { user_id: uid, option_id: o }))
+        .flatten()
+        .collect();
+    AnswerCommon::bulk_insert(db, inserts).await?;
+    Ok(())
 }

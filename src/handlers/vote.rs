@@ -1,14 +1,16 @@
+use actix_web::HttpResponse;
 use sqlx::{query, query_as, FromRow};
 
 use crate::actix_web::web::{Data, Json, Path};
 
 use crate::chrono::NaiveDate;
 use crate::context::UserInfo;
+use crate::core::models::answer::Submit;
 use crate::core::models::vote::VoteCreate;
 use crate::core::models::{date::Date, question::Question, vote::Vote};
 use crate::core::ports::repository::TxStore;
 use crate::core::services::question::{question_detail, questions_with_in_vote};
-use crate::core::services::vote::{create_vote, vote_detail};
+use crate::core::services::vote::{create_vote, submit_answers as _submit_answers, vote_detail};
 use crate::database::sqlx::PgSqlx;
 use crate::error::Error;
 use crate::response::{CreateResponse, DeleteResponse, List, UpdateResponse};
@@ -172,4 +174,10 @@ pub async fn questions(user_info: UserInfo, vote_id: Path<(i32,)>, db: Data<PgPo
     let vote_id = vote_id.into_inner().0;
     let (list, total) = questions_with_in_vote(&mut PgSqlx::new(db.acquire().await?), user_info.id, vote_id).await?;
     Ok(Json(List::new(list, total)))
+}
+
+pub async fn submit_answers(user_info: UserInfo, db: Data<PgPool>, vote_id: Path<(i32,)>, Json(req): Json<Vec<Submit>>) -> Result<HttpResponse, Error> {
+    let mut store = PgSqlx::new(db.begin().await?);
+    _submit_answers(&mut store, user_info.id, vote_id.0, req).await?;
+    Ok(HttpResponse::Ok().finish())
 }

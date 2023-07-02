@@ -36,7 +36,7 @@ pub struct Vote {
     pub visibility: String,
     pub status: String,
     pub has_updated: bool,
-    pub num_of_questions: i32,
+    pub num_of_questions: i64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
