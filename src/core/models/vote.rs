@@ -34,6 +34,8 @@ pub struct Vote {
     pub organization_id: i32,
     pub version: i64,
     pub visibility: String,
+    pub likes: i32,
+    pub dislikes: i32,
     pub status: String,
     pub has_updated: bool,
     pub num_of_questions: i64,

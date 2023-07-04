@@ -27,6 +27,8 @@ pub struct Question {
     pub has_updated: bool,
     pub has_answered: bool,
     pub options: Vec<Opt>,
+    pub likes: i32,
+    pub dislikes: i32,
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -238,7 +238,7 @@ impl PgSqlxManager {
     }
 }
 
-type VoteRow = (i32, String, Option<NaiveDate>, i32, i64, String, String, bool, i64);
+type VoteRow = (i32, String, Option<NaiveDate>, i32, i64, String, i32, i32, String, bool, i64);
 
 impl<E> VoteCommon for PgSqlx<E>
 where
@@ -296,14 +296,16 @@ where
                 organization_id: r.3,
                 version: r.4,
                 visibility: r.5,
-                status: r.6,
-                has_updated: r.7,
-                num_of_questions: r.8,
+                likes: r.6,
+                dislikes: r.7,
+                status: r.8,
+                has_updated: r.9,
+                num_of_questions: r.10,
             })
             .collect())
     }
     async fn get(&mut self, uid: i32, id: i32) -> Result<Vote, Error> {
-        let (id, name, deadline, organization_id, version, visibility, status, has_updated, num_of_questions): VoteRow = query_as(
+        let (id, name, deadline, organization_id, version, visibility, likes, dislikes, status, has_updated, num_of_questions): VoteRow = query_as(
             "
             SELECT 
                 v.*,
@@ -328,6 +330,8 @@ where
             organization_id,
             version,
             visibility,
+            likes,
+            dislikes,
             status,
             has_updated,
             num_of_questions,
@@ -374,7 +378,7 @@ impl<'a> Manager<'a, PgSqlx<PoolConnection<Postgres>>, PgSqlx<Transaction<'a, Po
     }
 }
 
-type QuestionRow = (i32, String, i32, String, i64, i32, bool, bool, i32, String, i32, Vec<String>);
+type QuestionRow = (i32, String, i32, String, i64, i32, i32, i32, bool, bool, i32, String, i32, Vec<String>);
 
 impl<E> QuestionCommon for PgSqlx<E>
 where
@@ -417,10 +421,10 @@ where
             if let Some(mut last) = l.pop() {
                 if last.id == r.0 {
                     last.options.push(Opt {
-                        id: r.8,
-                        option: r.9,
-                        question_id: r.10,
-                        images: r.11,
+                        id: r.10,
+                        option: r.11,
+                        question_id: r.12,
+                        images: r.13,
                     });
                     l.push(last);
                     return l;
@@ -434,13 +438,15 @@ where
                 type_: r.3,
                 version: r.4,
                 owner: r.5,
-                has_updated: r.6,
-                has_answered: r.7,
+                likes: r.6,
+                dislikes: r.7,
+                has_updated: r.8,
+                has_answered: r.9,
                 options: vec![Opt {
-                    id: r.8,
-                    option: r.9,
-                    question_id: r.10,
-                    images: r.11,
+                    id: r.10,
+                    option: r.11,
+                    question_id: r.12,
+                    images: r.13,
                 }],
             });
             l
@@ -476,13 +482,15 @@ where
             q.type_ = r.3;
             q.version = r.4;
             q.owner = r.5;
-            q.has_updated = r.6;
-            q.has_answered = r.7;
+            q.likes = r.6;
+            q.dislikes = r.7;
+            q.has_updated = r.8;
+            q.has_answered = r.9;
             q.options.push(Opt {
-                id: r.8,
-                option: r.9,
-                question_id: r.10,
-                images: r.11,
+                id: r.10,
+                option: r.11,
+                question_id: r.12,
+                images: r.13,
             });
             q
         });
