@@ -1,5 +1,6 @@
 use crate::core::models::question::QuestionCreate;
 use chrono::NaiveDate;
+use juju_macros::ToTuple;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -26,7 +27,7 @@ pub struct VoteQuery {
     pub size: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToTuple)]
 pub struct Vote {
     pub id: i32,
     pub name: String,

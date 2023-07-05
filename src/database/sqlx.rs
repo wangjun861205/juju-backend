@@ -5,7 +5,7 @@ use crate::core::models::{
     organization::{Insert as OrganizationInsert, Organization, OrganizationWithVoteInfo, Query as OrganizationQuery, Update as OrganizationUpdate},
     question::{Insert as QuestionInsert, Query as QuestionQuery, Question, ReadMarkInsert as QuestionReadMarkInsert, ReadMarkUpdate as QuestionReadMarkUpdate},
     user::{Patch as UserPath, User},
-    vote::{Insert as VoteInsert, Query as VoteQuery, ReadMarkInsert as VoteReadMarkInsert, Vote},
+    vote::{Insert as VoteInsert, Query as VoteQuery, ReadMarkInsert as VoteReadMarkInsert, Vote, VoteRow},
 };
 use crate::core::ports::repository::{
     AnswerCommon, Common, Manager, OptionCommon, OrganizationCommon, QuestionCommon, QuestionReadMarkCommon, Store, TxStore, UserCommon, VoteCommon, VoteReadMarkCommon,
@@ -238,7 +238,7 @@ impl PgSqlxManager {
     }
 }
 
-type VoteRow = (i32, String, Option<NaiveDate>, i32, i64, String, i32, i32, String, bool, i64);
+// type VoteRow = (i32, String, Option<NaiveDate>, i32, i64, String, i32, i32, String, bool, i64);
 
 impl<E> VoteCommon for PgSqlx<E>
 where

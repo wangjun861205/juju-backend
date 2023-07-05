@@ -36,3 +36,5 @@ default = "0.1.2"
 log = "0.4.17"
 uuid = { version = "1.3.2", features = ["v4"] }
 anyhow = "1.0.71"
+juju-macros = {git="https://github.com/wangjun861205/juju-macros.git"}
+
