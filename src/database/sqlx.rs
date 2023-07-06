@@ -3,9 +3,11 @@ use crate::core::models::{
     common::Pagination,
     option::{Insert as OptionInsert, Opt, Query as OptionQuery},
     organization::{Insert as OrganizationInsert, Organization, OrganizationWithVoteInfo, Query as OrganizationQuery, Update as OrganizationUpdate},
-    question::{Insert as QuestionInsert, Query as QuestionQuery, Question, ReadMarkInsert as QuestionReadMarkInsert, ReadMarkUpdate as QuestionReadMarkUpdate},
+    question::{
+        FavoriteQuestion, FavoriteQuestionQuery, Insert as QuestionInsert, Query as QuestionQuery, Question, ReadMarkInsert as QuestionReadMarkInsert, ReadMarkUpdate as QuestionReadMarkUpdate,
+    },
     user::{Patch as UserPath, User},
-    vote::{Insert as VoteInsert, Query as VoteQuery, ReadMarkInsert as VoteReadMarkInsert, Vote, VoteRow},
+    vote::{FavoriteVote, FavoriteVoteQuery, Insert as VoteInsert, Query as VoteQuery, ReadMarkInsert as VoteReadMarkInsert, Vote, VoteRow},
 };
 use crate::core::ports::repository::{
     AnswerCommon, Common, Manager, OptionCommon, OrganizationCommon, QuestionCommon, QuestionReadMarkCommon, Store, TxStore, UserCommon, VoteCommon, VoteReadMarkCommon,
@@ -238,8 +240,6 @@ impl PgSqlxManager {
     }
 }
 
-// type VoteRow = (i32, String, Option<NaiveDate>, i32, i64, String, i32, i32, String, bool, i64);
-
 impl<E> VoteCommon for PgSqlx<E>
 where
     for<'e> &'e mut E: Executor<'e, Database = Postgres>,
@@ -346,6 +346,32 @@ where
             .execute(&mut self.executor)
             .await?;
         Ok(())
+    }
+
+    async fn insert_favorite(&mut self, favorite: FavoriteVote) -> Result<(), Error> {
+        query("INSERT INTO favorite_votes (user_id, vote_id, attitude) VALUES ($1, $2, $3)")
+            .bind(favorite.user_id)
+            .bind(favorite.vote_id)
+            .bind(favorite.attitude)
+            .execute(&mut self.executor)
+            .await?;
+        Ok(())
+    }
+
+    async fn exists_favorite(&mut self, query: FavoriteVoteQuery) -> Result<bool, Error> {
+        let exists = query_scalar(
+            "SELECT EXISTS(
+            SELECT 1 FROM favorite_votes 
+            WHERE ($1 IS NULL OR user_id = $1) 
+            AND ($2 IS NULL OR vote_id = $2)
+            AND ($3 IS NULL OR attitude = $3))",
+        )
+        .bind(query.user_id_eq)
+        .bind(query.vote_id_eq)
+        .bind(query.attitude_eq)
+        .fetch_one(&mut self.executor)
+        .await?;
+        Ok(exists)
     }
 }
 
@@ -542,6 +568,32 @@ where
             .fetch_one(&mut self.executor)
             .await?;
         Ok(count)
+    }
+
+    async fn insert_favorite(&mut self, favorite: FavoriteQuestion) -> Result<(), Error> {
+        query("INSERT INTO favorite_questions (user_id, question_id, attitude) VALUES ($1, $2, $3)")
+            .bind(favorite.user_id)
+            .bind(favorite.question_id)
+            .bind(favorite.attitude)
+            .execute(&mut self.executor)
+            .await?;
+        Ok(())
+    }
+
+    async fn exists_favorite(&mut self, query: FavoriteQuestionQuery) -> Result<bool, Error> {
+        let exists = query_scalar(
+            "SELECT EXISTS(
+            SELECT 1 FROM favorite_questions 
+            WHERE ($1 IS NULL OR user_id = $1) 
+            AND ($2 IS NULL OR question_id = $2)
+            AND ($3 IS NULL OR attitude = $3))",
+        )
+        .bind(query.user_id_eq)
+        .bind(query.question_id_eq)
+        .bind(query.attitude_eq)
+        .fetch_one(&mut self.executor)
+        .await?;
+        Ok(exists)
     }
 }
 

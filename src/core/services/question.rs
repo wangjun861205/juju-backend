@@ -2,7 +2,10 @@ use crate::{
     core::{
         models::{
             option::Insert as OptionInsert,
-            question::{Create as QuestionCreate, Insert as QuestionInsert, Query, Question, ReadMarkInsert as QuestionReadMarkInsert, ReadMarkUpdate as QuestionReadMarkUpdate},
+            question::{
+                Create as QuestionCreate, FavoriteQuestion, FavoriteQuestionQuery, Insert as QuestionInsert, Query, Question, ReadMarkInsert as QuestionReadMarkInsert,
+                ReadMarkUpdate as QuestionReadMarkUpdate,
+            },
         },
         ports::repository::{OptionCommon, OrganizationCommon, QuestionCommon, QuestionReadMarkCommon, Store},
     },
@@ -83,4 +86,42 @@ where
     let total = QuestionCommon::count(storer, Query { vote_id_eq: Some(vote_id) }).await?;
     let questions = QuestionCommon::query(storer, uid, Query { vote_id_eq: Some(vote_id) }, None).await?;
     Ok((questions, total))
+}
+
+async fn has_already_ranked<S>(storer: &mut S, user_id: i32, question_id: i32) -> Result<bool, Error>
+where
+    S: Store,
+{
+    let has_ranked = QuestionCommon::exists_favorite(
+        storer,
+        FavoriteQuestionQuery {
+            user_id_eq: Some(user_id),
+            question_id_eq: Some(question_id),
+            ..default::default()
+        },
+    )
+    .await?;
+    Ok(has_ranked)
+}
+
+pub async fn like_question<S>(storer: &mut S, user_id: i32, question_id: i32) -> Result<(), Error>
+where
+    S: Store,
+{
+    if has_already_ranked(storer, user_id, question_id).await? {
+        return Err(Error::BusinessError("has already ranked".into()));
+    }
+    QuestionCommon::insert_favorite(storer, FavoriteQuestion { user_id, question_id, attitude: 1 }).await?;
+    Ok(())
+}
+
+pub async fn dislike_question<S>(storer: &mut S, user_id: i32, question_id: i32) -> Result<(), Error>
+where
+    S: Store,
+{
+    if has_already_ranked(storer, user_id, question_id).await? {
+        return Err(Error::BusinessError("has already ranked".into()));
+    }
+    QuestionCommon::insert_favorite(storer, FavoriteQuestion { user_id, question_id, attitude: -1 }).await?;
+    Ok(())
 }

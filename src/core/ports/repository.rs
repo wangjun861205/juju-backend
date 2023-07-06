@@ -3,9 +3,11 @@ use crate::core::models::{
     common::Pagination,
     option::{Insert as OptionInsert, Opt, Query as OptionQuery},
     organization::{Insert as OrganizationInsert, Organization, OrganizationWithVoteInfo, Query as OrganizationQuery, Update as OrganizationUpdate},
-    question::{Insert as QuestionInsert, Query as QuestionQuery, Question, ReadMarkInsert as QuestionReadMarkInsert, ReadMarkUpdate as QuestionReadMarkUpdate},
+    question::{
+        FavoriteQuestion, FavoriteQuestionQuery, Insert as QuestionInsert, Query as QuestionQuery, Question, ReadMarkInsert as QuestionReadMarkInsert, ReadMarkUpdate as QuestionReadMarkUpdate,
+    },
     user::{Patch as UserPatch, User},
-    vote::{Insert as VoteInsert, Query as VoteQuery, ReadMarkInsert as VoteReadMarkInsert, Vote},
+    vote::{FavoriteVote, FavoriteVoteQuery, Insert as VoteInsert, Query as VoteQuery, ReadMarkInsert as VoteReadMarkInsert, Vote},
 };
 use crate::error::Error;
 use std::future::Future;
@@ -17,6 +19,8 @@ pub trait VoteCommon {
     async fn count(&mut self, query: &VoteQuery) -> Result<i64, Error>;
     async fn get(&mut self, uid: i32, id: i32) -> Result<Vote, Error>;
     async fn update_read_mark_version(&mut self, uid: i32, id: i32, version: i64) -> Result<(), Error>;
+    async fn insert_favorite(&mut self, favorite: FavoriteVote) -> Result<(), Error>;
+    async fn exists_favorite(&mut self, query: FavoriteVoteQuery) -> Result<bool, Error>;
 }
 
 pub trait VoteReadMarkCommon {
@@ -49,6 +53,8 @@ pub trait QuestionCommon {
     async fn get_organization_id(&mut self, question_id: i32) -> Result<i32, Error>;
     async fn is_owner(&mut self, uid: i32, id: i32) -> Result<bool, Error>;
     async fn is_belongs_to_vote(&mut self, vote_id: i32, ids: Vec<i32>) -> Result<bool, Error>;
+    async fn insert_favorite(&mut self, favorite: FavoriteQuestion) -> Result<(), Error>;
+    async fn exists_favorite(&mut self, query: FavoriteQuestionQuery) -> Result<bool, Error>;
 }
 
 pub trait QuestionReadMarkCommon {

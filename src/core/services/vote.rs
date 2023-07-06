@@ -1,3 +1,4 @@
+use crate::core::models::vote::{FavoriteVote, FavoriteVoteQuery};
 use crate::core::ports::repository::{OptionCommon, QuestionCommon, QuestionReadMarkCommon, Store, TxStore, VoteCommon, VoteReadMarkCommon};
 use crate::core::{
     models::{
@@ -118,5 +119,43 @@ where
         .flatten()
         .collect();
     AnswerCommon::bulk_insert(db, inserts).await?;
+    Ok(())
+}
+
+async fn has_already_ranked<D>(db: &mut D, user_id: i32, vote_id: i32) -> Result<bool, Error>
+where
+    D: Store,
+{
+    let ranked = VoteCommon::exists_favorite(
+        db,
+        FavoriteVoteQuery {
+            user_id_eq: Some(user_id),
+            vote_id_eq: Some(vote_id),
+            ..default::default()
+        },
+    )
+    .await?;
+    Ok(ranked)
+}
+
+pub async fn like_vote<D>(db: &mut D, user_id: i32, vote_id: i32) -> Result<(), Error>
+where
+    D: Store,
+{
+    if has_already_ranked(db, user_id, vote_id).await? {
+        return Err(Error::BusinessError("already has ranked".into()));
+    }
+    VoteCommon::insert_favorite(db, FavoriteVote { user_id, vote_id, attitude: 1 }).await?;
+    Ok(())
+}
+
+pub async fn dislike_vote<D>(db: &mut D, user_id: i32, vote_id: i32) -> Result<(), Error>
+where
+    D: Store,
+{
+    if has_already_ranked(db, user_id, vote_id).await? {
+        return Err(Error::BusinessError("already has ranked".into()));
+    }
+    VoteCommon::insert_favorite(db, FavoriteVote { user_id, vote_id, attitude: -1 }).await?;
     Ok(())
 }

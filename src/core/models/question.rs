@@ -1,4 +1,5 @@
 use crate::core::models::option::{Opt, OptCreate};
+use juju_macros::ToTuple;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -61,4 +62,18 @@ pub struct ReadMarkUpdate {
     pub question_id: i32,
     pub user_id: i32,
     pub version: i64,
+}
+
+#[derive(Debug, ToTuple)]
+pub struct FavoriteQuestion {
+    pub user_id: i32,
+    pub question_id: i32,
+    pub attitude: i32,
+}
+
+#[derive(Debug, Default)]
+pub struct FavoriteQuestionQuery {
+    pub user_id_eq: Option<i32>,
+    pub question_id_eq: Option<i32>,
+    pub attitude_eq: Option<i32>,
 }

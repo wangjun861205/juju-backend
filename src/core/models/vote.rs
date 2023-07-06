@@ -69,3 +69,17 @@ pub struct ReadMarkInsert {
     pub user_id: i32,
     pub version: i64,
 }
+
+#[derive(Debug, ToTuple)]
+pub struct FavoriteVote {
+    pub user_id: i32,
+    pub vote_id: i32,
+    pub attitude: i32,
+}
+
+#[derive(Debug, Default)]
+pub struct FavoriteVoteQuery {
+    pub user_id_eq: Option<i32>,
+    pub vote_id_eq: Option<i32>,
+    pub attitude_eq: Option<i32>,
+}
